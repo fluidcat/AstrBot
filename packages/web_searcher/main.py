@@ -46,6 +46,8 @@ class Main(star.Star):
         async with aiohttp.ClientSession(trust_env=True) as session:
             async with session.get(url, headers=header, timeout=6) as response:
                 html = await response.text(encoding="utf-8")
+                if not html:
+                    return ""
                 doc = Document(html)
                 ret = doc.summary(html_partial=True)
                 soup = BeautifulSoup(ret, "html.parser")
