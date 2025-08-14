@@ -40,3 +40,5 @@ aiosqlite
 py-cord>=2.6.1
 slack-sdk
 pydub
+pymediainfo~=7.0.1
+pysilk-mod

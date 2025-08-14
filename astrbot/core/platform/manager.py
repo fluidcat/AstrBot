@@ -62,6 +62,10 @@ class PlatformManager:
                     from .sources.wechatpadpro.wechatpadpro_adapter import (
                         WeChatPadProAdapter,  # noqa: F401
                     )
+                case "wechat857":
+                    from .sources.wechat857.wechat857_adapter import (
+                        WeChat857Adapter,
+                    )
                 case "lark":
                     from .sources.lark.lark_adapter import LarkPlatformAdapter  # noqa: F401
                 case "dingtalk":
