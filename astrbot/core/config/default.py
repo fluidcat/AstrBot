@@ -167,6 +167,13 @@ CONFIG_METADATA_2 = {
                         "wpp_active_message_poll": False,
                         "wpp_active_message_poll_interval": 3,
                     },
+                    "微信个人号(WeChat857)": {
+                        "id": "wechat857",
+                        "type": "wechat857",
+                        "enable": False,
+                        "host": "这里填写你的局域网IP或者公网服务器IP",
+                        "port": 8059,
+                    },
                     "微信公众平台": {
                         "id": "weixin_official_account",
                         "type": "weixin_official_account",
