@@ -252,7 +252,8 @@ class WeChat857Adapter(Platform):
         """
         处理从 WebSocket 接收到的消息。
         """
-        logger.debug(f"收到 轮训 消息: {message}")
+        if '新春氛围视频' not in message['Content']:
+            logger.debug(f"收到 轮训 消息: {message}")
         try:
             if message.get("MsgId") and message.get("FromUserName"):
                 abm = await self.convert_message(message)
