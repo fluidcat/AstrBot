@@ -56,7 +56,7 @@ class WechatAPIClientBase:
         self.alias = ""
         self.phone = ""
 
-        self.ignore_protect = True
+        self.ignore_protect = False
         self.first_login_time = None
 
         # 调用所有 Mixin 的初始化方法

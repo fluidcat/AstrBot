@@ -172,8 +172,9 @@ CONFIG_METADATA_2 = {
                         "id": "wechat857",
                         "type": "wechat857",
                         "enable": False,
-                        "host": "这里填写你的局域网IP或者公网服务器IP",
+                        "host": "",
                         "port": 8059,
+                        "wxid": "",
                     },
                     "微信公众平台": {
                         "id": "weixin_official_account",

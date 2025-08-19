@@ -12,6 +12,7 @@ import anyio
 from astrbot import logger
 from astrbot.api.message_components import Plain, Image, At, Record
 from astrbot.api.platform import Platform, PlatformMetadata
+from astrbot.core import astrbot_config as global_config
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.astr_message_event import MessageSesion
 from astrbot.core.platform.astrbot_message import (
@@ -41,6 +42,7 @@ class WeChat857Adapter(Platform):
         self._shutdown_event = None
         self.config = platform_config
         self.settings = platform_settings
+        self.bot_id = self.config.get("id")
         self.unique_session = platform_settings.get("unique_session", False)
 
         self.metadata = PlatformMetadata(
@@ -54,14 +56,11 @@ class WeChat857Adapter(Platform):
         self.port = self.config.get("port")
         self.client = Wechat857Client(self.host, self.port)
         self.base_url = f"http://{self.host}:{self.port}"
-        self.wxid = None  # 用于保存登录成功后的 wxid
+        self.wxid = self.config.get("wxid", "")  # 用于保存登录成功后的 wxid
         self.nickname = None  # 用于保存登录成功后的 昵称
         self.device_id = None  # 用于保存设备id
         self.device_name = None  # 用于保存设备名
         self.first_login_time = None  # 用于保存设备首次登录时间
-        self.credentials_file = os.path.join(
-            get_astrbot_data_path(), "wechat857_credentials.json"
-        )  # 持久化文件路径
         self.ws_handle_task = None
         self.polling_handle_task = None
 
@@ -81,23 +80,22 @@ class WeChat857Adapter(Platform):
         """
         启动平台适配器的运行实例。
         """
-        logger.info("WeChat857 适配器正在启动...")
+        logger.info(f"{self.bot_id} 消息平台正在启动...")
 
         if loaded_credentials := self.load_credentials():
             self.device_name = loaded_credentials.get("device_name")
             self.device_id = loaded_credentials.get("device_id")
-            self.wxid = loaded_credentials.get("wxid")
             self.first_login_time = loaded_credentials.get("first_login_time")
 
         is_login_in = self.wxid and await self.client.is_logged_in(self.wxid)
 
         # 检查在线状态
         if is_login_in:
-            logger.info("WeChat857 设备已在线，凭据存在，跳过扫码登录。")
+            logger.info(f"{self.bot_id} 设备已在线，凭据存在，跳过扫码登录。")
         else:
             # 1. 检查设备
             if not self.device_id or not self.device_name:
-                logger.info("WeChat857 无可用设备，将生成新设备。")
+                logger.info(f"{self.bot_id} 无可用设备，将生成新设备。")
                 if not self.device_name:
                     self.device_name = self.client.create_device_name()
                 if not self.device_id:
@@ -105,7 +103,7 @@ class WeChat857Adapter(Platform):
 
             # 2. 获取登录二维码
             if not is_login_in:
-                logger.info("WeChat857 设备已离线，开始扫码登录。")
+                logger.info(f"{self.bot_id} 设备离线状态，开始扫码登录。")
                 uuid, qr_code_url = await self.client.get_qr_code(self.device_name, self.device_id)
 
                 if qr_code_url:
@@ -118,9 +116,9 @@ class WeChat857Adapter(Platform):
                 login_successful = await self.check_login_status(uuid)
 
                 if login_successful:
-                    logger.info("登录成功，WeChat857适配器已连接。")
+                    logger.info(f"登录成功, {self.bot_id}适配器已连接。")
                 else:
-                    logger.warning("登录失败或超时，WeChat857 适配器将关闭。")
+                    logger.warning(f"登录失败或超时, {self.bot_id} 适配器将关闭。")
                     await self.terminate()
                     return
 
@@ -132,7 +130,7 @@ class WeChat857Adapter(Platform):
         self._shutdown_event = asyncio.Event()
         await self._shutdown_event.wait()
 
-        logger.info("WeChat857 适配器已停止。")
+        logger.info(f"{self.bot_id} 适配器已停止。")
 
     async def client_prepare(self):
         # client初始化必要数据
@@ -148,17 +146,17 @@ class WeChat857Adapter(Platform):
         try:
             success = await self.client.start_auto_heartbeat()
             if success:
-                logger.info("WeChat857 已开启自动心跳")
+                logger.info(f"{self.bot_id} 已开启自动心跳")
             else:
-                logger.warning("WeChat857 开启自动心跳失败")
+                logger.warning(f"{self.bot_id} 开启自动心跳失败")
         except ValueError:
-            logger.warning("WeChat857 自动心跳已在运行")
+            logger.warning(f"{self.bot_id} 自动心跳已在运行")
         except Exception as e:
             if "在运行" not in str(e):
-                logger.warning("WeChat857 自动心跳已在运行")
+                logger.warning(f"{self.bot_id} 自动心跳已在运行")
 
         # 先接受堆积消息
-        logger.info("WeChat857 处理堆积消息中")
+        logger.info(f"{self.bot_id} 处理堆积消息中")
         count = 0
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10),
@@ -173,13 +171,13 @@ class WeChat857Adapter(Platform):
                         count += 1
                         continue
 
-                logger.debug(f"WeChat857 接受到 {len(data)} 条堆积消息")
+                logger.debug(f"{self.bot_id} 接受到 {len(data)} 条堆积消息")
                 await asyncio.sleep(1)
 
-        logger.info("WeChat857 处理堆积消息完毕")
+        logger.info(f"{self.bot_id} 处理堆积消息完毕")
 
     async def start_polling(self):
-        logger.info("WeChat857 开始等待消息")
+        logger.info(f"{self.bot_id} 开始等待消息")
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10),
                                          connector=aiohttp.TCPConnector(limit=100)) as session:
             data = []
@@ -198,17 +196,23 @@ class WeChat857Adapter(Platform):
                 await asyncio.sleep(1)
 
     def load_credentials(self):
-        if os.path.exists(self.credentials_file):
+        if not self.wxid:
+            return None
+        credentials_file = os.path.join(get_astrbot_data_path(), f"wechat857_{self.wxid}_credentials.json")
+        if os.path.exists(credentials_file):
             try:
-                with open(self.credentials_file, "r") as f:
+                with open(credentials_file, "r") as f:
                     credentials = json.load(f)
-                    logger.info("成功加载 WeChat857 凭据。")
+                    logger.info(f"成功加载 {self.bot_id} 凭据。")
                     return credentials
             except Exception as e:
-                logger.error(f"加载 WeChat857 凭据失败: {e}")
+                logger.error(f"加载 {self.bot_id} 凭据失败: {e}")
         return None
 
     def save_credentials(self):
+        if not self.wxid:
+            raise Exception("wxid为空, 请检查设备登录状态")
+        credentials_file = os.path.join(get_astrbot_data_path(), f"wechat857_{self.wxid}_credentials.json")
         self.first_login_time = self.first_login_time or int(datetime.now().timestamp())
         credentials = {
             "device_id": self.device_id,
@@ -218,12 +222,15 @@ class WeChat857Adapter(Platform):
         }
         try:
             # 确保数据目录存在
-            data_dir = os.path.dirname(self.credentials_file)
+            data_dir = os.path.dirname(credentials_file)
             os.makedirs(data_dir, exist_ok=True)
-            with open(self.credentials_file, "w") as f:
+            with open(credentials_file, "w") as f:
                 json.dump(credentials, f)
         except Exception as e:
-            logger.error(f"保存 WeChat857 凭据失败: {e}")
+            logger.error(f"保存 {self.bot_id} 凭据失败: {e}")
+        # 保存wxid到消息平台配置
+        self.config["wxid"] = self.wxid
+        global_config.save_config()
 
     async def check_login_status(self, uuid: str):
         """
@@ -236,7 +243,7 @@ class WeChat857Adapter(Platform):
                     self.wxid = data.get("acctSectResp").get("userName")
                     self.nickname = data.get("acctSectResp").get("nickName")
                     logger.info(
-                        f"登录成功，wxid: {self.wxid}, uuid: {uuid}"
+                        f"登录成功, wxid: {self.wxid}, uuid: {uuid}"
                     )
                     return True
 
@@ -252,7 +259,7 @@ class WeChat857Adapter(Platform):
         """
         处理从 WebSocket 接收到的消息。
         """
-        if '新春氛围视频' not in message['Content']:
+        if "新春氛围视频" not in message["Content"]:
             logger.debug(f"收到 轮训 消息: {message}")
         try:
             if message.get("MsgId") and message.get("FromUserName"):
@@ -383,7 +390,7 @@ class WeChat857Adapter(Platform):
                 logger.error("获取群成员详情失败")
             return None
         except aiohttp.ClientConnectorError as e:
-            logger.error(f"连接到 WeChat857 服务失败: {e}")
+            logger.error(f"连接到 {self.bot_id} 服务失败: {e}")
             return None
         except Exception as e:
             logger.error(f"获取群成员详情时发生错误: {e}")
@@ -472,7 +479,7 @@ class WeChat857Adapter(Platform):
                         oldest_key = next(iter(self.cached_texts))
                         self.cached_texts.pop(oldest_key)
 
-                    logger.debug(f"缓存文本消息，new_msg_id={new_msg_id}")
+                    logger.debug(f"缓存文本消息, new_msg_id={new_msg_id}")
                     self.cached_texts[str(new_msg_id)] = content
             except Exception as e:
                 logger.error(f"缓存文本消息失败: {e}")
@@ -500,7 +507,7 @@ class WeChat857Adapter(Platform):
                             oldest_key = next(iter(self.cached_images))
                             self.cached_images.pop(oldest_key)
 
-                        logger.debug(f"缓存图片消息，new_msg_id={new_msg_id}")
+                        logger.debug(f"缓存图片消息, new_msg_id={new_msg_id}")
                         self.cached_images[str(new_msg_id)] = image_bs64_data
                 except Exception as e:
                     logger.error(f"缓存图片消息失败: {e}")

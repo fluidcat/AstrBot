@@ -79,7 +79,6 @@ class LoginMixin(WechatAPIClientBase):
                 if json_resp.get("Data").get("acctSectResp", ""):
                     self.wxid = json_resp.get("Data").get("acctSectResp").get("userName")
                     self.nickname = json_resp.get("Data").get("acctSectResp").get("nickName")
-                    self.protector.update_login_status(device_id=device_id)
                     return True, json_resp.get("Data")
                 else:
                     return False, json_resp.get("Data").get("expiredTime")
