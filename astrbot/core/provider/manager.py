@@ -214,6 +214,14 @@ class ProviderManager:
                     from .sources.whisper_selfhosted_source import (
                         ProviderOpenAIWhisperSelfHost as ProviderOpenAIWhisperSelfHost,
                     )
+                case "dify_stt":
+                    from .sources.dify_stt import (
+                        DifySTT as DifySTT,
+                    )
+                case "yx520_tts":
+                    from .sources.yx520_tts import (
+                        Yx520TTS as Yx520TTS,
+                    )
                 case "openai_tts_api":
                     from .sources.openai_tts_api_source import (
                         ProviderOpenAITTSAPI as ProviderOpenAITTSAPI,
