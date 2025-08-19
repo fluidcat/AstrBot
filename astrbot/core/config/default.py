@@ -904,6 +904,28 @@ CONFIG_METADATA_2 = {
                         "stt_model": "iic/SenseVoiceSmall",
                         "is_emotion": False,
                     },
+                    "Dify WorkFlow STT": {
+                        "id": "dify_stt",
+                        "provider": "dify_stt",
+                        "type": "dify_stt",
+                        "provider_type": "speech_to_text",
+                        "enable": False,
+                        "dify_api_key": "",
+                        "dify_api_base": "https://api.dify.ai/v1",
+                        "workflow_output_key": "text",
+                        "workflow_iutput_key": "audio",
+                        "timeout": 60,
+                        "hint": "请确保你在 AstrBot 里设置的 输入输出 和 Dify 里面workflow定义的一致！"
+                    },
+                    "YX520 TTS": {
+                        "id": "yx520_tts",
+                        "type": "yx520_tts",
+                        "provider": "yx520_tts",
+                        "provider_type": "text_to_speech",
+                        "enable": False,
+                        "tts_vioce": "99",
+                        "timeout": "60",
+                    },
                     "OpenAI TTS(API)": {
                         "id": "openai_tts",
                         "type": "openai_tts_api",
