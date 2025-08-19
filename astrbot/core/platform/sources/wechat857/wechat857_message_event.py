@@ -9,9 +9,11 @@ from PIL import Image as PILImage  # 使用别名避免冲突
 
 from astrbot.core.message.components import (
     Image,
+    Music,
     Plain,
     WechatEmoji,
     Record,
+    Xml,
 )  # Import Image
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
@@ -46,6 +48,10 @@ class WeChat857MessageEvent(AstrMessageEvent):
                 await self._send_emoji(comp)
             elif isinstance(comp, Record):
                 await self._send_voice(comp)
+            elif isinstance(comp, Xml):
+                await self._send_voice(comp)
+            elif isinstance(comp, Music):
+                await self._send_music(comp)
         await super().send(message)
 
     async def _send_image(self, comp: Image):
@@ -98,9 +104,23 @@ class WeChat857MessageEvent(AstrMessageEvent):
             session_id = self.session_id
 
         record_path = await comp.convert_to_file_path()
-        ext = os.path.splitext(record_path)[1].lower()
+        ext = os.path.splitext(record_path)[1].lower()[1:]
 
         await self.adapter.client.send_voice_message(session_id, Path(record_path), ext)
+
+    async def _send_xml(self, comp: Xml):
+        if self.get_group_id() and "#" in self.session_id:
+            session_id = self.session_id.split("#")[0]
+        else:
+            session_id = self.session_id
+        await self.adapter.client.send_app_message(session_id, comp.data, comp.resid)
+
+    async def _send_music(self, comp: Music):
+        if self.get_group_id() and "#" in self.session_id:
+            session_id = self.session_id.split("#")[0]
+        else:
+            session_id = self.session_id
+        await self.adapter.client.send_app_message(session_id, comp.content, 3)
 
     @staticmethod
     def _validate_base64(b64: str) -> bytes:
