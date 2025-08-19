@@ -335,7 +335,6 @@ class WeChat857Adapter(Platform):
         """
         if from_user_name == "weixin":
             return False
-        at_me = False
         if "@chatroom" in from_user_name:
             abm.type = MessageType.GROUP_MESSAGE
             abm.group_id = from_user_name
@@ -357,14 +356,6 @@ class WeChat857Adapter(Platform):
                 abm.session_id = f"{from_user_name}#{abm.sender.user_id}"
             else:
                 abm.session_id = from_user_name
-
-            msg_source = raw_message.get("MsgSource", "")
-            if self.wxid in msg_source:
-                at_me = True
-            if "在群聊中@了你" in raw_message.get("PushContent", ""):
-                at_me = True
-            if at_me:
-                abm.message.insert(0, At(qq=abm.self_id, name=""))
         else:
             abm.type = MessageType.FRIEND_MESSAGE
             abm.group_id = ""
