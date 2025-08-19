@@ -14,6 +14,8 @@ from astrbot import logger
 from pydub import AudioSegment
 from pymediainfo import MediaInfo
 
+from astrbot.core.utils.tencent_record_helper import audio_to_tencent_silk_base64
+
 from .base import *
 from .errors import *
 
@@ -95,8 +97,7 @@ class MessageMixin(WechatAPIClientBase):
             json_resp = await response.json()
 
             if json_resp.get("Success"):
-                logger.info("消息撤回成功: 对方wxid:{} ClientMsgId:{} CreateTime:{} NewMsgId:{}",
-                            wxid, client_msg_id, new_msg_id)
+                logger.info(f"消息撤回成功: 对方wxid:{wxid} ClientMsgId:{client_msg_id} CreateTime:{create_time} NewMsgId:{new_msg_id}")
                 return True
             else:
                 self.error_handler(json_resp)
@@ -246,7 +247,7 @@ class MessageMixin(WechatAPIClientBase):
 
         # 打印预估时间，300KB/s
         predict_time = int(file_len / 1024 / 300)
-        logger.info("开始发送视频: 对方wxid:{} 视频base64略 图片base64略 预计耗时:{}秒", wxid, predict_time)
+        logger.info(f"开始发送视频: 对方wxid:{wxid} 视频base64略 图片base64略 预计耗时:{predict_time}秒")
 
         async with aiohttp.ClientSession() as session:
             json_param = {"Wxid": self.wxid, "ToWxid": wxid, "Base64": vid_base64, "ImageBase64": image_base64,
@@ -257,7 +258,7 @@ class MessageMixin(WechatAPIClientBase):
         if json_resp.get("Success"):
             json_param.pop('Base64')
             json_param.pop('ImageBase64')
-            logger.info("发送视频成功: 对方wxid:{} 时长:{} 视频base64略 图片base64略", wxid, duration)
+            logger.info("发送视频成功: 对方wxid:{wxid} 时长:{duration} 视频base64略 图片base64略")
             data = json_resp.get("Data")
             return data.get("clientMsgId"), data.get("newMsgId")
         else:
@@ -291,53 +292,23 @@ class MessageMixin(WechatAPIClientBase):
             raise BanProtection("风控保护: 新设备登录后4小时内请挂机")
         elif format not in ["amr", "wav", "mp3"]:
             raise ValueError("format must be one of amr, wav, mp3")
-
-        # read voice to byte
-        if isinstance(voice, str):
-            voice_byte = base64.b64decode(voice)
-        elif isinstance(voice, bytes):
-            voice_byte = voice
-        elif isinstance(voice, os.PathLike):
-            with open(voice, "rb") as f:
-                voice_byte = f.read()
-        else:
-            raise ValueError("voice should be str, bytes, or path")
-
-        # get voice duration and b64
-        if format.lower() == "amr":
-            audio = AudioSegment.from_file(BytesIO(voice_byte), format="amr")
-            voice_base64 = base64.b64encode(voice_byte).decode()
-        elif format.lower() == "wav":
-            audio = AudioSegment.from_file(BytesIO(voice_byte), format="wav").set_channels(1)
-            audio = audio.set_frame_rate(self._get_closest_frame_rate(audio.frame_rate))
-            voice_base64 = base64.b64encode(
-                await pysilk.async_encode(audio.raw_data, sample_rate=audio.frame_rate)).decode()
-        elif format.lower() == "mp3":
-            audio = AudioSegment.from_file(BytesIO(voice_byte), format="mp3").set_channels(1)
-            audio = audio.set_frame_rate(self._get_closest_frame_rate(audio.frame_rate))
-            voice_base64 = base64.b64encode(
-                await pysilk.async_encode(audio.raw_data, sample_rate=audio.frame_rate)).decode()
-        else:
-            raise ValueError("format must be one of amr, wav, mp3")
-
-        duration = len(audio)
+        
+        b64, duration = await audio_to_tencent_silk_base64(voice.resolve())
+        duration = duration*1000
 
         # AMR = 0, MP3 = 2, SILK = 4, SPEEX = 1, WAVE = 3
         # format_dict = {"amr": 0, "speex": 1, "mp3": 2, "wave": 3, "wav": 3, "silk": 4}
         format_dict = {"amr": 0, "mp3": 4, "wav": 4}
 
         async with aiohttp.ClientSession() as session:
-            json_param = {"Wxid": self.wxid, "ToWxid": wxid, "Base64": voice_base64, "VoiceTime": duration,
+            json_param = {"Wxid": self.wxid, "ToWxid": wxid, "Base64": b64, "VoiceTime": duration,
                           "Type": format_dict[format]}
             response = await session.post(Uri.SendVoice, json=json_param)
             json_resp = await response.json()
 
-            with open("latest.base64", 'w', encoding='utf-8') as f:
-                f.write(voice_base64)
-
             if json_resp.get("Success"):
                 json_param.pop('Base64')
-                logger.info("发送语音消息: 对方wxid:{} 时长:{} 格式:{} 音频base64略", wxid, duration, format)
+                logger.info(f"发送语音消息: 对方wxid:{wxid} 时长:{duration} 格式:{format} 音频base64略")
                 data = json_resp.get("Data")
                 return int(data.get("ClientMsgId")), data.get("CreateTime"), data.get("NewMsgId")
             else:
@@ -395,7 +366,7 @@ class MessageMixin(WechatAPIClientBase):
             json_resp = await response.json()
 
             if json_resp.get("Success"):
-                logger.info("发送链接消息: 对方wxid:{} 链接:{} 标题:{} 描述:{} 缩略图:{}", wxid, url, title, description, thumb_url)
+                logger.info(f"发送链接消息: 对方wxid:{wxid} 链接:{url} 标题:{title} 描述:{description} 缩略图:{thumb_url}")
                 data = json_resp.get("Data")
                 return data.get("clientMsgId"), data.get("createTime"), data.get("newMsgId")
             else:
@@ -431,7 +402,7 @@ class MessageMixin(WechatAPIClientBase):
             json_resp = await response.json()
 
             if json_resp.get("Success"):
-                logger.info("发送表情消息: 对方wxid:{} md5:{} 总长度:{}", wxid, md5, total_length)
+                logger.info(f"发送表情消息: 对方wxid:{wxid} md5:{md5} 总长度:{total_length}")
                 return json_resp.get("Data").get("emojiItem")
             else:
                 self.error_handler(json_resp)
@@ -470,10 +441,7 @@ class MessageMixin(WechatAPIClientBase):
             json_resp = await response.json()
 
             if json_resp.get("Success"):
-                logger.info("发送名片消息: 对方wxid:{} 名片wxid:{} 名片备注:{} 名片昵称:{}", wxid,
-                            card_wxid,
-                            card_alias,
-                            card_nickname)
+                logger.info(f"发送名片消息: 对方wxid:{wxid} 名片wxid:{card_wxid} 名片备注:{card_alias} 名片昵称:{card_nickname}")
                 data = json_resp.get("Data").get("List")[0]
                 return data.get("ClientMsgid"), data.get("Createtime"), data.get("NewMsgId")
             else:
@@ -510,7 +478,7 @@ class MessageMixin(WechatAPIClientBase):
 
             if json_resp.get("Success"):
                 json_param["Xml"] = json_param["Xml"].replace("\n", "")
-                logger.info("发送app消息: 对方wxid:{} 类型:{} xml:{}", wxid, type, json_param["Xml"])
+                logger.info(f"发送app消息: 对方wxid:{wxid} 类型:{type} xml:{json_param['Xml']}")
                 data = json_resp.get("Data")
                 return data.get("clientMsgId"), data.get("createTime"), data.get("newMsgId")
             else:
@@ -545,7 +513,7 @@ class MessageMixin(WechatAPIClientBase):
             json_resp = await response.json()
 
             if json_resp.get("Success"):
-                logger.info("转发文件消息: 对方wxid:{} xml:{}", wxid, xml)
+                logger.info(f"转发文件消息: 对方wxid:{wxid} xml:{xml}")
                 data = json_resp.get("Data")
                 return data.get("clientMsgId"), data.get("createTime"), data.get("newMsgId")
             else:
@@ -580,7 +548,7 @@ class MessageMixin(WechatAPIClientBase):
             json_resp = await response.json()
 
             if json_resp.get("Success"):
-                logger.info("转发图片消息: 对方wxid:{} xml:{}", wxid, xml)
+                logger.info(f"转发图片消息: 对方wxid:{wxid} xml:{xml}")
                 data = json_resp.get("Data")
                 return data.get("ClientImgId").get("string"), data.get("CreateTime"), data.get("Newmsgid")
             else:
@@ -615,7 +583,7 @@ class MessageMixin(WechatAPIClientBase):
             json_resp = await response.json()
 
             if json_resp.get("Success"):
-                logger.info("转发视频消息: 对方wxid:{} xml:{}", wxid, xml)
+                logger.info(f"转发视频消息: 对方wxid:{wxid} xml:{xml}")
                 data = json_resp.get("Data")
                 return data.get("clientMsgId"), data.get("newMsgId")
             else:
