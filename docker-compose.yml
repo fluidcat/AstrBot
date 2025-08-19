@@ -1,0 +1,12 @@
+services:
+  astrbot:
+    image: soulter/astrbot:fluidcat
+    container_name: astrbot
+    restart: always
+    ports:
+      - "6185:6185" # 必选，AstrBot WebUI 端口
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - $PWD:/AstrBot
+      - /etc/localtime:/etc/localtime:ro
