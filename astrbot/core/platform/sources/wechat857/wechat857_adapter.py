@@ -80,6 +80,8 @@ class WeChat857Adapter(Platform):
         """
         启动平台适配器的运行实例。
         """
+        self._shutdown_event = asyncio.Event()
+
         logger.info(f"{self.bot_id} 消息平台正在启动...")
 
         if loaded_credentials := self.load_credentials():
@@ -118,7 +120,7 @@ class WeChat857Adapter(Platform):
                 if login_successful:
                     logger.info(f"登录成功, {self.bot_id}适配器已连接。")
                 else:
-                    logger.warning(f"登录失败或超时, {self.bot_id} 适配器将关闭。")
+                    logger.info(f"登录失败或超时, {self.bot_id} 适配器将关闭。")
                     await self.terminate()
                     return
 
@@ -127,7 +129,6 @@ class WeChat857Adapter(Platform):
 
         self.polling_handle_task = asyncio.create_task(self.start_polling())
 
-        self._shutdown_event = asyncio.Event()
         await self._shutdown_event.wait()
 
         logger.info(f"{self.bot_id} 适配器已停止。")
@@ -236,7 +237,7 @@ class WeChat857Adapter(Platform):
         """
         循环检测扫码状态。
         """
-        while True:
+        while not self._shutdown_event.is_set():
             try:
                 stat, data = await self.client.check_login_uuid(uuid, self.device_id)
                 if stat:
