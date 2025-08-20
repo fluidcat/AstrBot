@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from PIL import Image as PILImage  # 使用别名避免冲突
 
 from astrbot.core.message.components import (
+    At,
     Image,
     Music,
     Plain,
@@ -38,20 +39,28 @@ class WeChat857MessageEvent(AstrMessageEvent):
         self.adapter = adapter  # Save the adapter instance
 
     async def send(self, message: MessageChain):
-        for comp in message.chain:
-            await asyncio.sleep(1)
-            if isinstance(comp, Plain):
-                await self._send_text(comp)
-            elif isinstance(comp, Image):
-                await self._send_image(comp)
-            elif isinstance(comp, WechatEmoji):
-                await self._send_emoji(comp)
-            elif isinstance(comp, Record):
-                await self._send_voice(comp)
-            elif isinstance(comp, Xml):
-                await self._send_voice(comp)
-            elif isinstance(comp, Music):
-                await self._send_music(comp)
+        if (
+            any(isinstance(m, At) for m in message.chain)
+            and any(isinstance(m, Plain) for m in message.chain)
+        ):
+            await self._send_at_text(message)
+        else:
+            for comp in message.chain:
+                await asyncio.sleep(1)
+                if isinstance(comp, Plain):
+                    await self._send_text(comp)
+                elif isinstance(comp, At):
+                    await self._send_at(comp)
+                elif isinstance(comp, Image):
+                    await self._send_image(comp)
+                elif isinstance(comp, WechatEmoji):
+                    await self._send_emoji(comp)
+                elif isinstance(comp, Record):
+                    await self._send_voice(comp)
+                elif isinstance(comp, Xml):
+                    await self._send_voice(comp)
+                elif isinstance(comp, Music):
+                    await self._send_music(comp)
         await super().send(message)
 
     async def _send_image(self, comp: Image):
@@ -63,32 +72,45 @@ class WeChat857MessageEvent(AstrMessageEvent):
 
         await self.adapter.client.send_image_message(session_id, Path(file_path))
 
-    async def _send_text(self, comp: Plain):
-        message_text = comp.text
-        mention_id = []
-        if (
-            self.message_obj.type == MessageType.GROUP_MESSAGE  # 确保是群聊消息
-            and self.adapter.settings.get(
-                "reply_with_mention", False
-            )  # 检查适配器设置是否启用 reply_with_mention
-            and self.message_obj.sender  # 确保有发送者信息
-            and (
-                self.message_obj.sender.user_id or self.message_obj.sender.nickname
-            )  # 确保发送者有 ID 或昵称
-        ):
-            # 优先使用 nickname，如果没有则使用 user_id
-            mention_text = (
-                self.message_obj.sender.nickname or self.message_obj.sender.user_id
-            )
-            mention_id = [self.message_obj.sender.user_id]
-            message_text = f"@{mention_text}\u2005{message_text}"
+    async def _send_at_text(self, message: MessageChain):
 
         if self.get_group_id() and "#" in self.session_id:
             session_id = self.session_id.split("#")[0]
         else:
             session_id = self.session_id
 
-        await self.adapter.client.send_text_message(session_id, message_text, mention_id)
+        ats = []
+        at_text = ""
+        plain = ""
+        for comp in message.chain:
+            if isinstance(comp, At):
+                ats.append(comp.qq)
+                at_text += f"@{comp.name or comp.qq}\u2005"
+            elif isinstance(comp, Plain):
+                plain = comp.text
+        await self.adapter.client.send_text_message(session_id, at_text + plain, ats)
+
+    async def _send_at(self, comp: At):
+        if self.message_obj.type != MessageType.GROUP_MESSAGE:
+            return
+        ats = comp.name or comp.qq
+        at_text = f"@{ats}\u2005"
+
+        if self.get_group_id() and "#" in self.session_id:
+            session_id = self.session_id.split("#")[0]
+        else:
+            session_id = self.session_id
+        await self.adapter.client.send_text_message(session_id, at_text, [ats])
+
+    async def _send_text(self, comp: Plain):
+        message_text = comp.text
+
+        if self.get_group_id() and "#" in self.session_id:
+            session_id = self.session_id.split("#")[0]
+        else:
+            session_id = self.session_id
+
+        await self.adapter.client.send_text_message(session_id, message_text)
 
     async def _send_emoji(self, comp: WechatEmoji):
         if self.get_group_id() and "#" in self.session_id:
