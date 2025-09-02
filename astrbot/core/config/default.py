@@ -6,7 +6,7 @@ import os
 
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-VERSION = "3.5.25"
+VERSION = "3.5.26"
 DB_PATH = os.path.join(get_astrbot_data_path(), "data_v3.db")
 
 # 默认配置
@@ -103,6 +103,7 @@ DEFAULT_CONFIG = {
     "t2i_endpoint": "",
     "t2i_use_file_service": False,
     "http_proxy": "",
+    "no_proxy": ["localhost", "127.0.0.1", "::1"],
     "dashboard": {
         "enable": True,
         "username": "astrbot",
@@ -1001,6 +1002,7 @@ CONFIG_METADATA_2 = {
                         "api_key": "",
                         "api_base": "https://api.fish.audio/v1",
                         "fishaudio-tts-character": "可莉",
+                        "fishaudio-tts-reference-id": "",
                         "timeout": "20",
                     },
                     "阿里云百炼 TTS(API)": {
@@ -1594,6 +1596,11 @@ CONFIG_METADATA_2 = {
                         "type": "string",
                         "hint": "fishaudio TTS 的角色。默认为可莉。更多角色请访问：https://fish.audio/zh-CN/discovery",
                     },
+                    "fishaudio-tts-reference-id": {
+                        "description": "reference_id",
+                        "type": "string",
+                        "hint": "fishaudio TTS 的参考模型ID（可选）。如果填入此字段，将直接使用模型ID而不通过角色名称查询。例如：626bb6d3f3364c9cbc3aa6a67300a664。更多模型请访问：https://fish.audio/zh-CN/discovery，进入模型详情界面后可复制模型ID",
+                    },
                     "whisper_hint": {
                         "description": "本地部署 Whisper 模型须知",
                         "type": "string",
@@ -1939,6 +1946,12 @@ CONFIG_METADATA_2 = {
                 "description": "HTTP 代理",
                 "type": "string",
                 "hint": "启用后，会以添加环境变量的方式设置代理。格式为 `http://ip:port`",
+            },
+            "no_proxy": {
+                "description": "直连地址列表",
+                "type": "list",
+                "items": {"type": "string"},
+                "hint": "在此处添加不希望通过代理访问的地址，例如内部服务地址。回车添加，可添加多个，如未设置代理请忽略此配置",
             },
             "timezone": {
                 "description": "时区",
