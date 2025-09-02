@@ -39,6 +39,7 @@ class WeChat857MessageEvent(AstrMessageEvent):
         self.adapter = adapter  # Save the adapter instance
 
     async def send(self, message: MessageChain):
+        self.session_id = self.session_id.removesuffix("_wxid")
         if (
             any(isinstance(m, At) for m in message.chain)
             and any(isinstance(m, Plain) for m in message.chain)
