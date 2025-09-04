@@ -14,6 +14,7 @@ from astrbot import logger
 from pydub import AudioSegment
 from pymediainfo import MediaInfo
 
+from astrbot.core.utils.io import file_to_base64
 from astrbot.core.utils.tencent_record_helper import audio_to_tencent_silk_base64
 
 from .base import *
@@ -290,15 +291,19 @@ class MessageMixin(WechatAPIClientBase):
             raise UserLoggedOut("请先登录")
         elif not self.ignore_protect and self.check(14400):
             raise BanProtection("风控保护: 新设备登录后4小时内请挂机")
-        elif format not in ["amr", "wav", "mp3"]:
-            raise ValueError("format must be one of amr, wav, mp3")
+        elif format not in ["amr", "wav", "mp3", "silk"]:
+            raise ValueError("format must be one of amr, wav, mp3, silk")
         
-        b64, duration = await audio_to_tencent_silk_base64(voice.resolve())
+        if format == "silk":
+            b64, duration = file_to_base64(voice.resolve()), 1
+            b64 = b64.removeprefix("base64://")
+        else:
+            b64, duration = await audio_to_tencent_silk_base64(voice.resolve())
         duration = duration*1000
 
         # AMR = 0, MP3 = 2, SILK = 4, SPEEX = 1, WAVE = 3
         # format_dict = {"amr": 0, "speex": 1, "mp3": 2, "wave": 3, "wav": 3, "silk": 4}
-        format_dict = {"amr": 0, "mp3": 4, "wav": 4}
+        format_dict = {"amr": 0, "mp3": 4, "wav": 4, "silk": 4}
 
         async with aiohttp.ClientSession() as session:
             json_param = {"Wxid": self.wxid, "ToWxid": wxid, "Base64": b64, "VoiceTime": duration,
