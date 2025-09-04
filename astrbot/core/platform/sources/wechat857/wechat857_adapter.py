@@ -5,6 +5,7 @@ import os
 import time
 from datetime import datetime
 from typing import Optional, Dict, Any
+from xml.etree.ElementTree import tostring
 
 import aiohttp
 import anyio
@@ -13,6 +14,7 @@ from astrbot import logger
 from astrbot.api.message_components import Plain, Image, At, Record
 from astrbot.api.platform import Platform, PlatformMetadata
 from astrbot.core import astrbot_config as global_config
+from astrbot.core.message.components import Video
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.astr_message_event import MessageSesion
 from astrbot.core.platform.astrbot_message import (
@@ -492,8 +494,15 @@ class WeChat857Adapter(Platform):
             image_bs64_data = await self.client.download_image(
                 from_user_name, to_user_name, msg_id
             )
+            data_parser = WeChat857DataParser(
+                content=content,
+                is_private_chat=(abm.type != MessageType.GROUP_MESSAGE),
+                raw_message=raw_message,
+            )
             if image_bs64_data:
-                abm.message.append(Image.fromBase64(image_bs64_data))
+                image = Image.fromBase64(image_bs64_data)
+                image.__dict__["cdn_xml"] = f'<msg>{tostring(data_parser._format_to_xml().find("img"), encoding="unicode")}</msg>'
+                abm.message.append(image)
                 # 缓存图片，以便引用消息可以查找
                 try:
                     # 获取msg_id作为缓存的key
@@ -523,7 +532,27 @@ class WeChat857Adapter(Platform):
             if emoji_message is not None:
                 abm.message.append(emoji_message)
         elif msg_type == 50:
-            logger.warning("收到语音/视频消息，待实现。")
+            pass
+        elif msg_type == 43:
+            # 视频消息
+            msg_id = raw_message.get("MsgId")
+            data_parser = WeChat857DataParser(
+                content=content,
+                is_private_chat=(abm.type != MessageType.GROUP_MESSAGE),
+                raw_message=raw_message,
+            )
+            video_b64 = await self.client.download_video(msg_id)
+            if video_b64:
+                video_byte = base64.b64decode(video_b64)
+                temp_dir = os.path.join(get_astrbot_data_path(), "temp")
+                file_path = os.path.join(
+                    temp_dir, f"wechat857_video_{abm.message_id}.mp4"
+                )
+                async with await anyio.open_file(file_path, "wb") as f:
+                    await f.write(video_byte)
+                video = Video(file=file_path, url=file_path)
+                video.__dict__["cdn_xml"] = f'<msg>{tostring(data_parser._format_to_xml().find("videomsg"), encoding="unicode")}</msg>'
+                abm.message.append(video)
         elif msg_type == 34:
             # 语音消息
             bufid = 0
@@ -550,7 +579,9 @@ class WeChat857Adapter(Platform):
 
                 async with await anyio.open_file(file_path, "wb") as f:
                     await f.write(voice_bs64_data)
-                abm.message.append(Record(file=file_path, url=file_path))
+                record = Record(file=file_path, url=file_path)
+                record.__dict__["cdn_xml"] = f'<msg>{tostring(voicemsg, encoding="unicode")}</msg>'
+                abm.message.append(record)
         elif msg_type == 49:
             try:
                 parser = WeChat857DataParser(
@@ -559,7 +590,10 @@ class WeChat857Adapter(Platform):
                     cached_texts=self.cached_texts,
                     cached_images=self.cached_images,
                     raw_message=raw_message,
-                    downloader=self.client.download_image,
+                    image_downloader=self.client.download_image,
+                    video_downloader=self.client.download_video,
+                    voice_downloader=self.client.download_voice,
+                    file_downloader=self.client.download_attach,
                 )
                 components = await parser.parse_mutil_49()
                 if components:

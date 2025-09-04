@@ -9,9 +9,11 @@ from PIL import Image as PILImage  # 使用别名避免冲突
 
 from astrbot.core.message.components import (
     At,
+    File,
     Image,
     Music,
     Plain,
+    Video,
     WechatEmoji,
     Record,
     Xml,
@@ -58,8 +60,12 @@ class WeChat857MessageEvent(AstrMessageEvent):
                     await self._send_emoji(comp)
                 elif isinstance(comp, Record):
                     await self._send_voice(comp)
+                elif isinstance(comp, Video):
+                    await self._send_video(comp)
+                elif isinstance(comp, File):
+                    await self._send_file(comp)
                 elif isinstance(comp, Xml):
-                    await self._send_voice(comp)
+                    await self._send_xml(comp)
                 elif isinstance(comp, Music):
                     await self._send_music(comp)
         await super().send(message)
@@ -71,7 +77,10 @@ class WeChat857MessageEvent(AstrMessageEvent):
         else:
             session_id = self.session_id
 
-        await self.adapter.client.send_image_message(session_id, Path(file_path))
+        if comp.cdn_xml:
+            await self.adapter.client.send_cdn_img_msg(session_id, comp.cdn_xml)
+        else:
+            await self.adapter.client.send_image_message(session_id, Path(file_path))
 
     async def _send_at_text(self, message: MessageChain):
 
@@ -126,10 +135,36 @@ class WeChat857MessageEvent(AstrMessageEvent):
         else:
             session_id = self.session_id
 
-        record_path = await comp.convert_to_file_path()
-        ext = os.path.splitext(record_path)[1].lower()[1:]
+        if comp.cdn_xml:
+            await self.adapter.client.send_cdn_file_msg(session_id, comp.cdn_xml)
+        else:
+            record_path = await comp.convert_to_file_path()
+            ext = os.path.splitext(record_path)[1].lower()[1:]
+            await self.adapter.client.send_voice_message(session_id, Path(record_path), ext)
 
-        await self.adapter.client.send_voice_message(session_id, Path(record_path), ext)
+    async def _send_video(self, comp: Video):
+        if self.get_group_id() and "#" in self.session_id:
+            session_id = self.session_id.split("#")[0]
+        else:
+            session_id = self.session_id
+
+        if comp.cdn_xml:
+            await self.adapter.client.send_cdn_video_msg(session_id, comp.cdn_xml)
+        else:
+            record_path = await comp.convert_to_file_path()
+            ext = os.path.splitext(record_path)[1].lower()[1:]
+            await self.adapter.client.send_voice_message(session_id, Path(record_path), ext)
+
+    async def _send_file(self, comp: File):
+        if self.get_group_id() and "#" in self.session_id:
+            session_id = self.session_id.split("#")[0]
+        else:
+            session_id = self.session_id
+
+        if comp.cdn_xml:
+            await self.adapter.client.send_cdn_file_msg(session_id, comp.cdn_xml)
+        else:
+            raise NotImplementedError("暂不支持发送本地文件")
 
     async def _send_xml(self, comp: Xml):
         if self.get_group_id() and "#" in self.session_id:

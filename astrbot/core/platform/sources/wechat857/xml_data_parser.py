@@ -1,11 +1,18 @@
+import base64
+import os
+from xml.etree.ElementTree import tostring
+import anyio
 from defusedxml import ElementTree as eT
 from astrbot.api import logger
 from astrbot.api.message_components import (
     WechatEmoji as Emoji,
     Plain,
     Image,
+    Video,
     BaseMessageComponent,
 )
+from astrbot.core.message.components import File
+from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 
 class WeChat857DataParser:
@@ -16,14 +23,20 @@ class WeChat857DataParser:
         cached_texts=None,
         cached_images=None,
         raw_message: dict = None,
-        downloader=None,
+        image_downloader=None,
+        file_downloader=None,
+        voice_downloader=None,
+        video_downloader=None,
     ):
         self._xml = None
         self.content = content
         self.is_private_chat = is_private_chat
         self.cached_texts = cached_texts or {}
         self.cached_images = cached_images or {}
-        self.downloader = downloader
+        self.image_downloader = image_downloader
+        self.file_downloader = file_downloader
+        self.voice_downloader = voice_downloader
+        self.video_downloader = video_downloader
 
         raw_message = raw_message or {}
         self.from_user_name = raw_message.get("from_user_name", {}).get("str", "")
@@ -48,15 +61,33 @@ class WeChat857DataParser:
 
     async def parse_mutil_49(self) -> list[BaseMessageComponent] | None:
         """
-        处理 msg_type == 49 的多种 appmsg 类型（目前支持 type==57）
+        处理 msg_type == 49 的多种 appmsg 类型(目前支持 type==57)
+        链接分享消息, 3-音乐, 4-视频, 5-普通链接,6-文件, 33-小程序 19-聊天记录, 57-引用消息
         """
         try:
             appmsg_type = self._format_to_xml().findtext(".//appmsg/type")
             if appmsg_type == "57":
                 return await self.parse_reply()
+            elif appmsg_type == "6":
+                return await self.parse_file()
         except Exception as e:
             logger.warning(f"[parse_mutil_49] 解析失败: {e}")
         return None
+
+    async def parse_file(self) -> list[BaseMessageComponent]:
+        xml_msg = self._format_to_xml()
+        filename = xml_msg.findtext("appmsg/title")
+        attach_id = xml_msg.findtext("appmsg/appattach/attachid")
+        appmsg = xml_msg.find("appmsg")
+        if attach_id and self.file_downloader:
+            file_b64 = await self.file_downloader(attach_id)
+            temp_dir = os.path.join(get_astrbot_data_path(), "temp")
+            file_path = os.path.join(temp_dir, f"wechat857_file_{filename}")
+            async with await anyio.open_file(file_path, "wb") as f:
+                await f.write(base64.b64decode(file_b64))
+            comp = File(name=filename, file=file_path)
+            comp.__dict__["cdn_xml"] = f'<msg>{tostring(appmsg, encoding="unicode")}</msg>'
+            return [comp]
 
     async def parse_reply(self) -> list[BaseMessageComponent]:
         """
@@ -94,8 +125,8 @@ class WeChat857DataParser:
                                 if img is not None
                                 else None
                             )
-                            if cdn_url and self.downloader:
-                                quoted_image_b64 = await self.downloader(
+                            if cdn_url and self.image_downloader:
+                                quoted_image_b64 = await self.image_downloader(
                                     self.from_user_name, self.to_user_name, self.msg_id
                                 )
                         except Exception as e:
