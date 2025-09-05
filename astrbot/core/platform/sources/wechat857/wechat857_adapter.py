@@ -14,7 +14,7 @@ from astrbot import logger
 from astrbot.api.message_components import Plain, Image, At, Record
 from astrbot.api.platform import Platform, PlatformMetadata
 from astrbot.core import astrbot_config as global_config
-from astrbot.core.message.components import Video
+from astrbot.core.message.components import *
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.astr_message_event import MessageSesion
 from astrbot.core.platform.astrbot_message import (
@@ -22,13 +22,14 @@ from astrbot.core.platform.astrbot_message import (
     MessageMember,
     MessageType,
 )
+from .messsage_decorator import WechatMsg
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from .Client import Wechat857Client
 from .wechat857_message_event import WeChat857MessageEvent
 from ...register import register_platform_adapter
 
 try:
-    from .xml_data_parser import WeChat857DataParser
+    from defusedxml import ElementTree as eT
 except ImportError as e:
     logger.warning(
         f"警告: 可能未安装 defusedxml 依赖库，将导致无法解析微信的 表情包、引用 类型的消息: {str(e)}"
@@ -399,214 +400,417 @@ class WeChat857Adapter(Platform):
             logger.error(f"获取群成员详情时发生错误: {e}")
             return None
 
+    def _format_to_xml(self, content, is_private_chat):
+        try:
+            msg_str = content
+            if not is_private_chat:
+                parts = content.split(":\n", 1)
+                msg_str = parts[1] if len(parts) == 2 else content
+
+            return eT.fromstring(msg_str)
+        except Exception as e:
+            logger.error(f"[XML解析失败] {e}")
+            raise
+
     async def _process_message_content(
             self, abm: AstrBotMessage, raw_message: dict, msg_type: int, content: str
     ):
         """
         根据消息类型处理消息内容，填充 AstrBotMessage 的 message 列表。
         """
-        if msg_type == 1:  # 文本消息
-            abm.message_str = content
-            if abm.type == MessageType.GROUP_MESSAGE:
-                parts = content.split(":\n", 1)
-                if len(parts) == 2:
-                    message_content = parts[1]
-                    abm.message_str = message_content
+        content_type = None
+        if msg_type == 49:
+            xml_content = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE))
+            content_type = xml_content.findtext("appmsg/type")
+        elif msg_type == 10002:
+            xml_content = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE))
+            content_type = xml_content.get("type")
 
-                    # 检查是否@了机器人，参考 gewechat 的实现方式
-                    # 微信大部分客户端在@用户昵称后面，紧接着是一个\u2005字符（四分之一空格）
-                    at_me = False
+        components = await WechatMsg.convert(str(msg_type), content_type, self, abm, raw_message, content)
+        if components:
+            components = components if isinstance(components, list) else [components]
+            abm.message.extend(components)
+            abm.message_str = "\n".join(c.text for c in components if isinstance(c, Plain))
 
-                    # 检查 msg_source 中是否包含机器人的 wxid
-                    # wechatpadpro 的格式: <atuserlist>wxid</atuserlist>
-                    # gewechat 的格式: <atuserlist><![CDATA[wxid]]></atuserlist>
-                    msg_source = raw_message.get("MsgSource", "")
-                    if (
-                            f"<atuserlist>{abm.self_id}</atuserlist>" in msg_source
-                            or f"<atuserlist>{abm.self_id}," in msg_source
-                            or f",{abm.self_id}</atuserlist>" in msg_source
-                    ):
-                        at_me = True
+    @WechatMsg.do(msg_type="1")
+    async def convert_text_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        abm.message_str = content
+        if abm.type == MessageType.GROUP_MESSAGE:
+            parts = content.split(":\n", 1)
+            if len(parts) == 2:
+                message_content = parts[1]
+                abm.message_str = message_content
 
-                    # 也检查 push_content 中是否有@提示
-                    push_content = raw_message.get("PushContent", "")
-                    if "在群聊中@了你" in push_content:
-                        at_me = True
+                # 检查是否@了机器人，参考 gewechat 的实现方式
+                # 微信大部分客户端在@用户昵称后面，紧接着是一个\u2005字符（四分之一空格）
+                at_me = False
 
-                    if at_me:
-                        # 被@了，在消息开头插入At组件（参考gewechat的做法）
-                        bot_nickname = await self._get_group_member_nickname(
-                            abm.group_id, abm.self_id
-                        )
-                        abm.message.insert(
-                            0, At(qq=abm.self_id, name=bot_nickname or abm.self_id)
-                        )
+                # 检查 msg_source 中是否包含机器人的 wxid
+                # wechatpadpro 的格式: <atuserlist>wxid</atuserlist>
+                # gewechat 的格式: <atuserlist><![CDATA[wxid]]></atuserlist>
+                msg_source = raw_message.get("MsgSource", "")
+                if (
+                        f"<atuserlist>{abm.self_id}</atuserlist>" in msg_source
+                        or f"<atuserlist>{abm.self_id}," in msg_source
+                        or f",{abm.self_id}</atuserlist>" in msg_source
+                ):
+                    at_me = True
 
-                        # 只有当消息内容不仅仅是@时才添加Plain组件
-                        if "\u2005" in message_content:
-                            # 检查@之后是否还有其他内容
-                            parts = message_content.split("\u2005")
-                            if len(parts) > 1 and any(
-                                    part.strip() for part in parts[1:]
-                            ):
-                                abm.message.append(Plain(message_content))
-                        else:
-                            # 检查是否只包含@机器人
-                            is_pure_at = False
-                            if (
-                                    bot_nickname
-                                    and message_content.strip() == f"@{bot_nickname}"
-                            ):
-                                is_pure_at = True
-                            if not is_pure_at:
-                                abm.message.append(Plain(message_content))
+                # 也检查 push_content 中是否有@提示
+                push_content = raw_message.get("PushContent", "")
+                if "在群聊中@了你" in push_content:
+                    at_me = True
+
+                if at_me:
+                    # 被@了，在消息开头插入At组件（参考gewechat的做法）
+                    bot_nickname = await self._get_group_member_nickname(
+                        abm.group_id, abm.self_id
+                    )
+                    abm.message.insert(
+                        0, At(qq=abm.self_id, name=bot_nickname or abm.self_id)
+                    )
+
+                    # 只有当消息内容不仅仅是@时才添加Plain组件
+                    if "\u2005" in message_content:
+                        # 检查@之后是否还有其他内容
+                        parts = message_content.split("\u2005")
+                        if len(parts) > 1 and any(
+                                part.strip() for part in parts[1:]
+                        ):
+                            abm.message.append(Plain(message_content))
                     else:
-                        # 没有@机器人，作为普通文本处理
-                        abm.message.append(Plain(message_content))
+                        # 检查是否只包含@机器人
+                        is_pure_at = False
+                        if (
+                                bot_nickname
+                                and message_content.strip() == f"@{bot_nickname}"
+                        ):
+                            is_pure_at = True
+                        if not is_pure_at:
+                            abm.message.append(Plain(message_content))
                 else:
-                    abm.message.append(Plain(abm.message_str))
-            else:  # 私聊消息
+                    # 没有@机器人，作为普通文本处理
+                    abm.message.append(Plain(message_content))
+            else:
                 abm.message.append(Plain(abm.message_str))
+        else:  # 私聊消息
+            abm.message.append(Plain(abm.message_str))
 
-            # 缓存文本消息，以便引用消息可以查找
+        # 缓存文本消息，以便引用消息可以查找
+        try:
+            # 获取msg_id作为缓存的key
+            new_msg_id = raw_message.get("NewMsgId")
+            if new_msg_id:
+                # 限制缓存大小
+                if (
+                        len(self.cached_texts) >= self.max_text_cache
+                        and self.cached_texts
+                ):
+                    # 删除最早的一条缓存
+                    oldest_key = next(iter(self.cached_texts))
+                    self.cached_texts.pop(oldest_key)
+
+                logger.debug(f"缓存文本消息, new_msg_id={new_msg_id}")
+                self.cached_texts[str(new_msg_id)] = content
+        except Exception as e:
+            logger.error(f"缓存文本消息失败: {e}")
+
+    @WechatMsg.do(msg_type="3")
+    async def convert_image_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 图片消息
+        from_user_name = raw_message.get("FromUserName", {}).get("string", "")
+        to_user_name = raw_message.get("ToUserName", {}).get("string", "")
+        msg_id = raw_message.get("MsgId")
+        image_bs64_data = await self.client.download_image(
+            from_user_name, to_user_name, msg_id
+        )
+        if image_bs64_data:
+            image = Image.fromBase64(image_bs64_data)
+            img_xml = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE)).find("img")
+            image.__dict__["cdn_xml"] = f'<msg>{tostring(img_xml, encoding="unicode")}</msg>'
+            abm.message.append(image)
+            # 缓存图片，以便引用消息可以查找
             try:
                 # 获取msg_id作为缓存的key
                 new_msg_id = raw_message.get("NewMsgId")
                 if new_msg_id:
                     # 限制缓存大小
                     if (
-                            len(self.cached_texts) >= self.max_text_cache
-                            and self.cached_texts
+                            len(self.cached_images) >= self.max_image_cache
+                            and self.cached_images
                     ):
                         # 删除最早的一条缓存
-                        oldest_key = next(iter(self.cached_texts))
-                        self.cached_texts.pop(oldest_key)
+                        oldest_key = next(iter(self.cached_images))
+                        self.cached_images.pop(oldest_key)
 
-                    logger.debug(f"缓存文本消息, new_msg_id={new_msg_id}")
-                    self.cached_texts[str(new_msg_id)] = content
+                    logger.debug(f"缓存图片消息, new_msg_id={new_msg_id}")
+                    self.cached_images[str(new_msg_id)] = image_bs64_data
             except Exception as e:
-                logger.error(f"缓存文本消息失败: {e}")
-        elif msg_type == 3:
-            # 图片消息
-            from_user_name = raw_message.get("FromUserName", {}).get("string", "")
-            to_user_name = raw_message.get("ToUserName", {}).get("string", "")
-            msg_id = raw_message.get("MsgId")
-            image_bs64_data = await self.client.download_image(
-                from_user_name, to_user_name, msg_id
-            )
-            data_parser = WeChat857DataParser(
-                content=content,
-                is_private_chat=(abm.type != MessageType.GROUP_MESSAGE),
-                raw_message=raw_message,
-            )
-            if image_bs64_data:
-                image = Image.fromBase64(image_bs64_data)
-                image.__dict__["cdn_xml"] = f'<msg>{tostring(data_parser._format_to_xml().find("img"), encoding="unicode")}</msg>'
-                abm.message.append(image)
-                # 缓存图片，以便引用消息可以查找
-                try:
-                    # 获取msg_id作为缓存的key
-                    new_msg_id = raw_message.get("NewMsgId")
-                    if new_msg_id:
-                        # 限制缓存大小
-                        if (
-                                len(self.cached_images) >= self.max_image_cache
-                                and self.cached_images
-                        ):
-                            # 删除最早的一条缓存
-                            oldest_key = next(iter(self.cached_images))
-                            self.cached_images.pop(oldest_key)
+                logger.error(f"缓存图片消息失败: {e}")
 
-                        logger.debug(f"缓存图片消息, new_msg_id={new_msg_id}")
-                        self.cached_images[str(new_msg_id)] = image_bs64_data
-                except Exception as e:
-                    logger.error(f"缓存图片消息失败: {e}")
-        elif msg_type == 47:
-            # 视频消息 (注意：表情消息也是 47，需要区分) todo
-            data_parser = WeChat857DataParser(
-                content=content,
-                is_private_chat=(abm.type != MessageType.GROUP_MESSAGE),
-                raw_message=raw_message,
-            )
-            emoji_message = data_parser.parse_emoji()
-            if emoji_message is not None:
-                abm.message.append(emoji_message)
-        elif msg_type == 50:
-            pass
-        elif msg_type == 43:
-            # 视频消息
-            msg_id = raw_message.get("MsgId")
-            data_parser = WeChat857DataParser(
-                content=content,
-                is_private_chat=(abm.type != MessageType.GROUP_MESSAGE),
-                raw_message=raw_message,
-            )
-            video_b64 = await self.client.download_video(msg_id)
-            if video_b64:
-                video_byte = base64.b64decode(video_b64)
-                temp_dir = os.path.join(get_astrbot_data_path(), "temp")
-                file_path = os.path.join(
-                    temp_dir, f"wechat857_video_{abm.message_id}.mp4"
-                )
-                async with await anyio.open_file(file_path, "wb") as f:
-                    await f.write(video_byte)
-                video = Video(file=file_path, url=file_path)
-                video.__dict__["cdn_xml"] = f'<msg>{tostring(data_parser._format_to_xml().find("videomsg"), encoding="unicode")}</msg>'
-                abm.message.append(video)
-        elif msg_type == 34:
-            # 语音消息
-            bufid = 0
-            to_user_name = raw_message.get("ToUserName", {}).get("string", "")
-            from_user_name = raw_message.get("FromUserName", {}).get("string", "")
-            msg_id = raw_message.get("MsgId")
-            data_parser = WeChat857DataParser(
-                content=content,
-                is_private_chat=(abm.type != MessageType.GROUP_MESSAGE),
-                raw_message=raw_message,
+    @WechatMsg.do(msg_type="34")
+    async def convert_voice_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 语音消息
+        bufid = 0
+        to_user_name = raw_message.get("ToUserName", {}).get("string", "")
+        from_user_name = raw_message.get("FromUserName", {}).get("string", "")
+        msg_id = raw_message.get("MsgId")
+
+        voicemsg = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE)).find("voicemsg")
+        bufid = voicemsg.get("bufid") or "0"
+        length = int(voicemsg.get("length") or 0)
+        voiceurl = voicemsg.get("voiceurl") or ""
+        voice_bs64_data = await self.client.download_voice(msg_id, voiceurl, length, bufid, from_user_name)
+        if voice_bs64_data:
+            voice_bs64_data = base64.b64decode(voice_bs64_data)
+            temp_dir = os.path.join(get_astrbot_data_path(), "temp")
+            file_path = os.path.join(
+                temp_dir, f"wechat857_voice_{abm.message_id}.silk"
             )
 
-            voicemsg = data_parser._format_to_xml().find("voicemsg")
-            bufid = voicemsg.get("bufid") or "0"
-            length = int(voicemsg.get("length") or 0)
-            voiceurl = voicemsg.get("voiceurl") or ""
-            voice_bs64_data = await self.client.download_voice(msg_id, voiceurl, length, bufid, from_user_name)
-            if voice_bs64_data:
-                voice_bs64_data = base64.b64decode(voice_bs64_data)
-                temp_dir = os.path.join(get_astrbot_data_path(), "temp")
-                file_path = os.path.join(
-                    temp_dir, f"wechat857_voice_{abm.message_id}.silk"
-                )
+            async with await anyio.open_file(file_path, "wb") as f:
+                await f.write(voice_bs64_data)
+            record = Record(file=file_path, url=file_path)
+            record.__dict__["cdn_xml"] = f'<msg>{tostring(voicemsg, encoding="unicode")}</msg>'
+            abm.message.append(record)
 
-                async with await anyio.open_file(file_path, "wb") as f:
-                    await f.write(voice_bs64_data)
-                record = Record(file=file_path, url=file_path)
-                record.__dict__["cdn_xml"] = f'<msg>{tostring(voicemsg, encoding="unicode")}</msg>'
-                abm.message.append(record)
-        elif msg_type == 49:
-            try:
-                parser = WeChat857DataParser(
-                    content=content,
-                    is_private_chat=(abm.type != MessageType.GROUP_MESSAGE),
-                    cached_texts=self.cached_texts,
-                    cached_images=self.cached_images,
-                    raw_message=raw_message,
-                    image_downloader=self.client.download_image,
-                    video_downloader=self.client.download_video,
-                    voice_downloader=self.client.download_voice,
-                    file_downloader=self.client.download_attach,
+    @WechatMsg.do(msg_type="42")
+    async def convert_card_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        card_xml = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE))
+        card_dict = {
+            "wxid": card_xml.get("username", ""),
+            "v3": card_xml.get("username", ""),
+            "province": card_xml.get("province", ""),
+            "city": card_xml.get("city", ""),
+            "sign": card_xml.get("sign", ""),
+            "sex": card_xml.get("sex", ""), # 1:男, 2:女
+            "ticket": card_xml.get("ticket", ""),
+            "headimgurl": card_xml.get("smallheadimgurl", ""),
+            "nickname": card_xml.get("nickname", ""),
+            "alias": card_xml.get("alias", ""), # 微信号
+            "scene": card_xml.get("scene", "")
+        }
+        contact = Contact(card_dict["wxid"])
+        contact.__dict__.update(card_dict)
+        return contact
+
+
+    @WechatMsg.do(msg_type="43")
+    async def convert_video_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 视频消息
+        msg_id = raw_message.get("MsgId")
+        video_b64 = await self.client.download_video(msg_id)
+        if video_b64:
+            video_byte = base64.b64decode(video_b64)
+            temp_dir = os.path.join(get_astrbot_data_path(), "temp")
+            file_path = os.path.join(
+                temp_dir, f"wechat857_video_{abm.message_id}.mp4"
+            )
+            async with await anyio.open_file(file_path, "wb") as f:
+                await f.write(video_byte)
+            video = Video(file=file_path, url=file_path)
+            video_xml = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE)).find("videomsg")
+            video.__dict__["cdn_xml"] = f'<msg>{tostring(video_xml, encoding="unicode")}</msg>'
+            abm.message.append(video)
+
+    @WechatMsg.do(msg_type="47")
+    async def convert_emoji_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 表情消息
+        """
+        处理 msg_type == 47 的表情消息(emoji)
+        """
+        try:
+            emoji_element = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE)).find(".//emoji")
+            if emoji_element is not None:
+                return WechatEmoji(
+                    md5=emoji_element.get("md5"),
+                    md5_len=emoji_element.get("len"),
+                    cdnurl=emoji_element.get("cdnurl"),
                 )
-                components = await parser.parse_mutil_49()
-                if components:
-                    abm.message.extend(components)
-                    abm.message_str = "\n".join(
-                        c.text for c in components if isinstance(c, Plain)
-                    )
-            except Exception as e:
-                logger.warning(f"msg_type 49 处理失败: {e}")
-                abm.message.append(Plain("[XML 消息处理失败]"))
-                abm.message_str = "[XML 消息处理失败]"
-        else:
-            logger.warning(f"收到未处理的消息类型: {msg_type}。")
+        except Exception as e:
+            logger.error(f"[parse_emoji] 解析失败: {e}")
+
+        return None
+
+    @WechatMsg.do(msg_type="48")
+    async def convert_location_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        location_xml = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE)).find("location")
+        location = Location(
+            lat = location_xml.get("x"),
+            lon = location_xml.get("y"),
+            title = location_xml.get("poiname",""),
+            content = location_xml.get("label", "")
+        )
+        location.__dict__["scale"] = location_xml.get("scale")
+        return location
+
+    @WechatMsg.do(msg_type="49", content_type="3")
+    @WechatMsg.do(msg_type="49", content_type="76")
+    @WechatMsg.do(msg_type="49", content_type="92")
+    async def convert_music_share_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 音乐分享
+        _xml = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE)).find("appmsg")
+        music = Music(
+            audio = _xml.findtext("dataurl", _xml.findtext("url")),
+            url = _xml.findtext("url"),
+            image = _xml.findtext("songalbumurl"),
+            title = _xml.findtext("title"),
+        )
+        return music
+
+    @WechatMsg.do(msg_type="49", content_type="4")
+    async def convert_video_share_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 视频分享
+        logger.warning("视频分享消息暂不支持")
+
+    @WechatMsg.do(msg_type="49", content_type="5")
+    @WechatMsg.do(msg_type="49", content_type="1")
+    async def convert_url_share_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 链接、图文分享
+        logger.warning("链接、图文分享消息暂不支持")
+
+    @WechatMsg.do(msg_type="49", content_type="6")
+    async def convert_file_share_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        xml_msg = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE))
+        filename = xml_msg.findtext("appmsg/title")
+        attach_id = xml_msg.findtext("appmsg/appattach/attachid")
+        appmsg = xml_msg.find("appmsg")
+        if attach_id:
+            file_b64 = await self.client.download_attach(attach_id)
+            temp_dir = os.path.join(get_astrbot_data_path(), "temp")
+            file_path = os.path.join(temp_dir, f"wechat857_file_{filename}")
+            async with await anyio.open_file(file_path, "wb") as f:
+                await f.write(base64.b64decode(file_b64))
+            comp = File(name=filename, file=file_path)
+            comp.__dict__["cdn_xml"] = f'<msg>{tostring(appmsg, encoding="unicode")}</msg>'
+            return [comp]
+
+    @WechatMsg.do(msg_type="49", content_type="16")
+    async def convert_ticket_share_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 卡券分享
+        logger.warning("卡券分享消息暂不支持")
+
+    @WechatMsg.do(msg_type="49", content_type="19")
+    async def convert_chat_record_share_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 聊天记录分享
+        logger.warning("聊天记录分享消息暂不支持")
+
+    @WechatMsg.do(msg_type="49", content_type="33")
+    async def convert_micro_program_share_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 小程序分享
+        logger.warning("小程序分享消息暂不支持")
+
+    @WechatMsg.do(msg_type="49", content_type="57")
+    async def convert_quote_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 引用消息
+        """
+        处理 type == 57 的引用消息: 支持文本(1)、图片(3)、嵌套(49)
+        """
+        components = []
+
+        try:
+            appmsg = self._format_to_xml(content, abm.type!=MessageType.GROUP_MESSAGE).find("appmsg")
+            if appmsg is None:
+                return [Plain("[引用消息解析失败]")]
+
+            refermsg = appmsg.find("refermsg")
+            if refermsg is None:
+                return [Plain("[引用消息解析失败]")]
+
+            quote_type = int(refermsg.findtext("type", "0"))
+            nickname = refermsg.findtext("displayname", "未知发送者")
+            quote_content = refermsg.findtext("content", "")
+            svrid = refermsg.findtext("svrid")
+
+            match quote_type:
+                case 1:  # 文本引用
+                    quoted_text = self.cached_texts.get(str(svrid), quote_content)
+                    components.append(Plain(f"[引用] {nickname}: {quoted_text}"))
+
+                case 3:  # 图片引用
+                    quoted_image_b64 = self.cached_images.get(str(svrid))
+                    if not quoted_image_b64:
+                        try:
+                            quote_xml = eT.fromstring(quote_content)
+                            img = quote_xml.find("img")
+                            cdn_url = (
+                                img.get("cdnbigimgurl") or img.get("cdnmidimgurl")
+                                if img is not None
+                                else None
+                            )
+                            if cdn_url:
+                                quoted_image_b64 = await self.client.download_image(
+                                    self.from_user_name, self.to_user_name, self.msg_id
+                                )
+                        except Exception as e:
+                            logger.warning(f"[引用图片解析失败] svrid={svrid} err={e}")
+
+                    if quoted_image_b64:
+                        components.extend(
+                            [
+                                Image.fromBase64(quoted_image_b64),
+                                Plain(f"[引用] {nickname}: [引用的图片]"),
+                            ]
+                        )
+                    else:
+                        components.append(
+                            Plain(f"[引用] {nickname}: [引用的图片 - 未能获取]")
+                        )
+
+                case 49:  # 嵌套引用
+                    try:
+                        nested_root = eT.fromstring(quote_content)
+                        nested_title = nested_root.findtext(".//appmsg/title", "")
+                        components.append(Plain(f"[引用] {nickname}: {nested_title}"))
+                    except Exception as e:
+                        logger.warning(f"[嵌套引用解析失败] err={e}")
+                        components.append(Plain(f"[引用] {nickname}: [嵌套引用消息]"))
+
+                case _:  # 其他未识别类型
+                    logger.info(f"[未知引用类型] quote_type={quote_type}")
+                    components.append(Plain(f"[引用] {nickname}: [不支持的引用类型]"))
+
+            # 主消息标题
+            title = appmsg.findtext("title", "")
+            if title:
+                components.append(Plain(title))
+
+        except Exception as e:
+            logger.error(f"[parse_reply] 总体解析失败: {e}")
+            return [Plain("[引用消息解析失败]")]
+
+        return components
+
+    @WechatMsg.do(msg_type="49", content_type="115")
+    async def convert_gift_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 礼物消息
+        logger.warning("礼物消息暂不支持")
+
+    @WechatMsg.do(msg_type="49", content_type="2000")
+    async def convert_transfer_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 转账消息
+        logger.warning("转账消息暂不支持")
+
+    @WechatMsg.do(msg_type="49", content_type="2001")
+    async def convert_red_packet_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # 红包消息
+        logger.warning("红包消息暂不支持")
+
+    @WechatMsg.do(msg_type="10002", content_type="ilinkvoip")
+    async def convert_ilinkvoip_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        #接到语音电话消息 <sysmsg type="ilinkvoip"><voipmt><invite>CgAQweXrm8uhs78HGjZvOWNxODA5dkZHTWs4MzhSWVd6QWRqM2xZTkZrX2ltLndlY2hhdF8xNzU3MDQzMDE4NDAxXzMiJm85Y3E4MDl2RkdNazgzOFJZV3pBZGozbFlORmtAaW0ud2VjaGF0KiZvOWNxODA1TTY2Z1g1b01UVUxnSFBKaEhzamVJQGltLndlY2hhdDKoAQgCEqMBCMHl65vLobO/BxCx0/Lc6air2mgYASACKiZvOWNxODA5dkZHTWs4MzhSWVd6QWRqM2xZTkZrQGltLndlY2hhdDImbzljcTgwNU02NmdYNW9NVFVMZ0hQSmhIc2plSUBpbS53ZWNoYXQ6E3d4aWRfajQ0bWh5cDczdWJwMjFCE3d4aWRfa3VqajdvYmpwODMxMjJSBndlY2hhdFoHdm9pcC0ycDo/ChN3eGlkX2t1amo3b2JqcDgzMTIyEiZvOWNxODA1TTY2Z1g1b01UVUxnSFBKaEhzamVJQGltLndlY2hhdBgAOj8KE3d4aWRfajQ0bWh5cDczdWJwMjESJm85Y3E4MDl2RkdNazgzOFJZV3pBZGozbFlORmtAaW0ud2VjaGF0GABCE3d4aWRfajQ0bWh5cDczdWJwMjFItaSzv5Ez</invite></voipmt></sysmsg>
+        logger.warning("语音电话消息暂不支持")
+
+    @WechatMsg.do(msg_type="10002", content_type="ilinkvoip_cancel")
+    async def convert_ilinkvoip_cancel_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        #<sysmsg type="ilinkvoip"><voipmt><cancel>CN7nn5mfzoKsBxIaCAMSFgje55+Zn86CrAcQk+mekri+qdtoGAE=</cancel></voipmt></sysmsg>
+        #<voipmsg type="VoIPBubbleMsg"><VoIPBubbleMsg><msg><![CDATA[对方已取消]]></msg>\n<room_type>1</room_type>\n<red_dot>true</red_dot>\n<roomid>529184440743097310</roomid>\n<roomkey>0</roomkey>\n<inviteid>360751520</inviteid>\n<msg_type>100</msg_type>\n<timestamp>1757002379511</timestamp>\n<identity><![CDATA[1933106944032004954]]></identity>\n<duration>0</duration>\n<inviteid64>1757002375584</inviteid64>\n<business>1</business>\n<caller_memberid>0</caller_memberid>\n<callee_memberid>1</callee_memberid>\n</VoIPBubbleMsg></voipmsg>
+        logger.warning("语音电话消息暂不支持")
+
+    @WechatMsg.do(msg_type="10002", content_type="pat")
+    async def convert_pat_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
+        # <sysmsg type="pat">\n<pat>\n  <fromusername>wxid_j44mhyp73ubp21</fromusername>\n  <chatusername>wxid_kujj7objp83122</chatusername>\n  <pattedusername>wxid_kujj7objp83122</pattedusername>\n  <patsuffix><![CDATA[]]></patsuffix>\n  <patsuffixversion>0</patsuffixversion>\n\n\n\n\n  <template><![CDATA["${wxid_j44mhyp73ubp21}" 拍了拍我]]></template>\n\n\n\n\n</pat>\n</sysmsg>
+        logger.warning("拍一拍消息暂不支持")
 
     async def terminate(self):
         """
