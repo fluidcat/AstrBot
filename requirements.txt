@@ -40,4 +40,7 @@ aiosqlite
 py-cord>=2.6.1
 slack-sdk
 pydub
+sqlmodel
+deprecated
+sqlalchemy[asyncio]
 pymediainfo~=7.0.1
