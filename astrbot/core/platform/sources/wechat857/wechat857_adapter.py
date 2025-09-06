@@ -263,7 +263,7 @@ class WeChat857Adapter(Platform):
         """
         处理从 WebSocket 接收到的消息。
         """
-        if "新春氛围视频" not in message["Content"]:
+        if '<sysmsg type="dynacfg">' not in message.get("Content", {}).get("string", ""):
             logger.debug(f"收到 轮训 消息: {message}")
         try:
             if message.get("MsgId") and message.get("FromUserName"):
@@ -580,6 +580,7 @@ class WeChat857Adapter(Platform):
         card_dict = {
             "wxid": card_xml.get("username", ""),
             "v3": card_xml.get("username", ""),
+            "v4": card_xml.get("antispamticket", ""),
             "province": card_xml.get("province", ""),
             "city": card_xml.get("city", ""),
             "sign": card_xml.get("sign", ""),
@@ -590,7 +591,7 @@ class WeChat857Adapter(Platform):
             "alias": card_xml.get("alias", ""), # 微信号
             "scene": card_xml.get("scene", "")
         }
-        contact = Contact(card_dict["wxid"])
+        contact = Contact()
         contact.__dict__.update(card_dict)
         return contact
 
@@ -672,17 +673,30 @@ class WeChat857Adapter(Platform):
     @WechatMsg.do(msg_type="49", content_type="6")
     async def convert_file_share_message(self, abm: AstrBotMessage, raw_message: dict, content: str):
         xml_msg = self._format_to_xml(content, (abm.type != MessageType.GROUP_MESSAGE))
-        filename = xml_msg.findtext("appmsg/title")
+        title = xml_msg.findtext("appmsg/title")
         attach_id = xml_msg.findtext("appmsg/appattach/attachid")
-        appmsg = xml_msg.find("appmsg")
+        cdnattachurl = xml_msg.findtext("appmsg/appattach/cdnattachurl")
+        totallen = xml_msg.findtext("appmsg/appattach/totallen")
+        aeskey = xml_msg.findtext("appmsg/appattach/aeskey")
+        encryver = xml_msg.findtext("appmsg/appattach/encryver")
+        fileext = xml_msg.findtext("appmsg/appattach/fileext")
+        islargefilemsg = xml_msg.findtext("appmsg/appattach/islargefilemsg")
+        fileuploadtoken = xml_msg.findtext("appmsg/appattach/fileuploadtoken")
+        md5 = xml_msg.findtext("appmsg/md5")
+
         if attach_id:
             file_b64 = await self.client.download_attach(attach_id)
             temp_dir = os.path.join(get_astrbot_data_path(), "temp")
-            file_path = os.path.join(temp_dir, f"wechat857_file_{filename}")
+            file_path = os.path.join(temp_dir, f"wechat857_file_{title}")
             async with await anyio.open_file(file_path, "wb") as f:
                 await f.write(base64.b64decode(file_b64))
-            comp = File(name=filename, file=file_path)
-            comp.__dict__["cdn_xml"] = f'<msg>{tostring(appmsg, encoding="unicode")}</msg>'
+            comp = File(name=title, file=file_path)
+
+            cdn_xml = f"""<msg><appmsg appid=\"\" sdkver=\"0\"><title>{title}</title><action>view</action><type>6</type>
+            <appattach><attachid>{attach_id}</attachid><cdnattachurl>{cdnattachurl}</cdnattachurl><totallen>{totallen}</totallen>
+            <aeskey>{aeskey}</aeskey><encryver>{encryver}</encryver><fileext>{fileext}</fileext><islargefilemsg>{islargefilemsg}</islargefilemsg>
+            <fileuploadtoken><![CDATA[{fileuploadtoken}]]></fileuploadtoken></appattach><md5>{md5}</md5></appmsg></msg>"""
+            comp.__dict__["cdn_xml"] = cdn_xml
             return [comp]
 
     @WechatMsg.do(msg_type="49", content_type="16")
