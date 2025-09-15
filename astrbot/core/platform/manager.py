@@ -6,6 +6,7 @@ from typing import List
 from asyncio import Queue
 from .register import platform_cls_map
 from astrbot.core import logger
+from astrbot.core.star.star_handler import star_handlers_registry, star_map, EventType
 from .sources.webchat.webchat_adapter import WebChatAdapter
 
 
@@ -70,18 +71,24 @@ class PlatformManager:
                         WeChat857Adapter,
                     )
                 case "lark":
-                    from .sources.lark.lark_adapter import LarkPlatformAdapter  # noqa: F401
+                    from .sources.lark.lark_adapter import (
+                        LarkPlatformAdapter,  # noqa: F401
+                    )
                 case "dingtalk":
                     from .sources.dingtalk.dingtalk_adapter import (
                         DingtalkPlatformAdapter,  # noqa: F401
                     )
                 case "telegram":
-                    from .sources.telegram.tg_adapter import TelegramPlatformAdapter  # noqa: F401
+                    from .sources.telegram.tg_adapter import (
+                        TelegramPlatformAdapter,  # noqa: F401
+                    )
                 case "wecom":
-                    from .sources.wecom.wecom_adapter import WecomPlatformAdapter  # noqa: F401
+                    from .sources.wecom.wecom_adapter import (
+                        WecomPlatformAdapter,  # noqa: F401
+                    )
                 case "weixin_official_account":
                     from .sources.weixin_official_account.weixin_offacc_adapter import (
-                        WeixinOfficialAccountPlatformAdapter,  # noqa
+                        WeixinOfficialAccountPlatformAdapter,  # noqa: F401
                     )
                 case "discord":
                     from .sources.discord.discord_platform_adapter import (
@@ -89,6 +96,10 @@ class PlatformManager:
                     )
                 case "slack":
                     from .sources.slack.slack_adapter import SlackAdapter  # noqa: F401
+                case "satori":
+                    from .sources.satori.satori_adapter import (
+                        SatoriPlatformAdapter,  # noqa: F401
+                    )
         except (ImportError, ModuleNotFoundError) as e:
             logger.error(
                 f"加载平台适配器 {platform_config['type']} 失败，原因：{e}。请检查依赖库是否安装。提示：可以在 管理面板->控制台->安装Pip库 中安装依赖库。"
@@ -117,6 +128,17 @@ class PlatformManager:
                 )
             )
         )
+        handlers = star_handlers_registry.get_handlers_by_event_type(
+            EventType.OnPlatformLoadedEvent
+        )
+        for handler in handlers:
+            try:
+                logger.info(
+                    f"hook(on_platform_loaded) -> {star_map[handler.handler_module_path].name} - {handler.handler_name}"
+                )
+                await handler.handler()
+            except Exception:
+                logger.error(traceback.format_exc())
 
     async def _task_wrapper(self, task: asyncio.Task):
         try:

@@ -19,6 +19,7 @@ class PlatformAdapterType(enum.Flag):
     KOOK = enum.auto()
     VOCECHAT = enum.auto()
     WEIXIN_OFFICIAL_ACCOUNT = enum.auto()
+    SATORI = enum.auto()
     ALL = (
         AIOCQHTTP
         | QQOFFICIAL
@@ -33,6 +34,7 @@ class PlatformAdapterType(enum.Flag):
         | KOOK
         | VOCECHAT
         | WEIXIN_OFFICIAL_ACCOUNT
+        | SATORI
     )
 
 
@@ -50,6 +52,7 @@ ADAPTER_NAME_2_TYPE = {
     "wechat857": PlatformAdapterType.WECHAT857,
     "vocechat": PlatformAdapterType.VOCECHAT,
     "weixin_official_account": PlatformAdapterType.WEIXIN_OFFICIAL_ACCOUNT,
+    "satori": PlatformAdapterType.SATORI,
 }
 
 

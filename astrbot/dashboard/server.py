@@ -18,6 +18,7 @@ from astrbot.core.utils.io import get_local_ip_addresses
 from .routes import *
 from .routes.route import Response, RouteContext
 from .routes.session_management import SessionManagementRoute
+from .routes.t2i import T2iRoute
 
 APP: Quart = None
 
@@ -28,10 +29,19 @@ class AstrBotDashboard:
         core_lifecycle: AstrBotCoreLifecycle,
         db: BaseDatabase,
         shutdown_event: asyncio.Event,
+        webui_dir: str | None = None,
     ) -> None:
         self.core_lifecycle = core_lifecycle
         self.config = core_lifecycle.astrbot_config
-        self.data_path = os.path.abspath(os.path.join(get_astrbot_data_path(), "dist"))
+
+        # 参数指定webui目录
+        if webui_dir and os.path.exists(webui_dir):
+            self.data_path = os.path.abspath(webui_dir)
+        else:
+            self.data_path = os.path.abspath(
+                os.path.join(get_astrbot_data_path(), "dist")
+            )
+
         self.app = Quart("dashboard", static_folder=self.data_path, static_url_path="/")
         APP = self.app  # noqa
         self.app.config["MAX_CONTENT_LENGTH"] = (
@@ -60,9 +70,8 @@ class AstrBotDashboard:
         self.session_management_route = SessionManagementRoute(
             self.context, db, core_lifecycle
         )
-        self.persona_route = PersonaRoute(
-            self.context, db, core_lifecycle
-        )
+        self.persona_route = PersonaRoute(self.context, db, core_lifecycle)
+        self.t2i_route = T2iRoute(self.context, core_lifecycle)
 
         self.app.add_url_rule(
             "/api/plug/<path:subpath>",
