@@ -6,7 +6,7 @@ import os
 
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-VERSION = "4.1.2"
+VERSION = "4.1.4"
 DB_PATH = os.path.join(get_astrbot_data_path(), "data_v4.db")
 
 # 默认配置
@@ -60,6 +60,7 @@ DEFAULT_CONFIG = {
         "web_search_link": False,
         "display_reasoning_text": False,
         "identifier": False,
+        "group_name_display": False,
         "datetime_system_prompt": True,
         "default_personality": "default",
         "persona_pool": ["*"],
@@ -1754,6 +1755,9 @@ CONFIG_METADATA_2 = {
                     "identifier": {
                         "type": "bool",
                     },
+                    "group_name_display": {
+                        "type": "bool",
+                    },
                     "datetime_system_prompt": {
                         "type": "bool",
                     },
@@ -1933,17 +1937,31 @@ CONFIG_METADATA_3 = {
                         "_special": "select_provider",
                         "hint": "留空代表不使用。可用于不支持视觉模态的聊天模型。",
                     },
+                    "provider_stt_settings.enable": {
+                        "description": "默认启用语音转文本",
+                        "type": "bool",
+                    },
                     "provider_stt_settings.provider_id": {
                         "description": "语音转文本模型",
                         "type": "string",
                         "hint": "留空代表不使用。",
                         "_special": "select_provider_stt",
+                        "condition": {
+                            "provider_stt_settings.enable": True,
+                        },
+                    },
+                    "provider_tts_settings.enable": {
+                        "description": "默认启用文本转语音",
+                        "type": "bool",
                     },
                     "provider_tts_settings.provider_id": {
                         "description": "文本转语音模型",
                         "type": "string",
                         "hint": "留空代表不使用。",
                         "_special": "select_provider_tts",
+                        "condition": {
+                            "provider_tts_settings.enable": True,
+                        },
                     },
                     "provider_settings.image_caption_prompt": {
                         "description": "图片转述提示词",
@@ -2012,6 +2030,11 @@ CONFIG_METADATA_3 = {
                     "provider_settings.identifier": {
                         "description": "用户识别",
                         "type": "bool",
+                    },
+                    "provider_settings.group_name_display": {
+                        "description": "显示群名称",
+                        "type": "bool",
+                        "hint": "启用后，在支持的平台(aiocqhttp)上会在 prompt 中包含群名称信息。",
                     },
                     "provider_settings.datetime_system_prompt": {
                         "description": "现实世界时间感知",
