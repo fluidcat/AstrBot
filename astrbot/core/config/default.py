@@ -6,7 +6,7 @@ import os
 
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-VERSION = "4.1.5"
+VERSION = "4.2.1"
 DB_PATH = os.path.join(get_astrbot_data_path(), "data_v4.db")
 
 # 默认配置
@@ -876,6 +876,18 @@ CONFIG_METADATA_2 = {
                         "variables": {},
                         "timeout": 60,
                         "hint": "请确保你在 AstrBot 里设置的 APP 类型和 Dify 里面创建的应用的类型一致！",
+                    },
+                    "Coze": {
+                        "id": "coze",
+                        "provider": "coze",
+                        "provider_type": "chat_completion",
+                        "type": "coze",
+                        "enable": True,
+                        "coze_api_key": "",
+                        "bot_id": "",
+                        "coze_api_base": "https://api.coze.cn",
+                        "timeout": 60,
+                        "auto_save_history": True,
                     },
                     "阿里云百炼应用": {
                         "id": "dashscope",
@@ -1765,6 +1777,26 @@ CONFIG_METADATA_2 = {
                         "hint": "发送的消息文本内容对应的输入变量名。默认为 astrbot_text_query。",
                         "obvious": True,
                     },
+                    "coze_api_key": {
+                        "description": "Coze API Key",
+                        "type": "string",
+                        "hint": "Coze API 密钥，用于访问 Coze 服务。",
+                    },
+                    "bot_id": {
+                        "description": "Bot ID",
+                        "type": "string",
+                        "hint": "Coze 机器人的 ID，在 Coze 平台上创建机器人后获得。",
+                    },
+                    "coze_api_base": {
+                        "description": "API Base URL",
+                        "type": "string",
+                        "hint": "Coze API 的基础 URL 地址，默认为 https://api.coze.cn",
+                    },
+                    "auto_save_history": {
+                        "description": "由 Coze 管理对话记录",
+                        "type": "bool",
+                        "hint": "启用后，将由 Coze 进行对话历史记录管理, 此时 AstrBot 本地保存的上下文不会生效(仅供浏览), 对 AstrBot 的上下文进行的操作也不会生效。如果为禁用, 则使用 AstrBot 管理上下文。",
+                    },
                 },
             },
             "provider_settings": {
@@ -1974,26 +2006,28 @@ CONFIG_METADATA_3 = {
                         "hint": "留空代表不使用。可用于不支持视觉模态的聊天模型。",
                     },
                     "provider_stt_settings.enable": {
-                        "description": "默认启用语音转文本",
+                        "description": "启用语音转文本",
                         "type": "bool",
+                        "hint": "STT 总开关。",
                     },
                     "provider_stt_settings.provider_id": {
-                        "description": "语音转文本模型",
+                        "description": "默认语音转文本模型",
                         "type": "string",
-                        "hint": "留空代表不使用。",
+                        "hint": "用户也可使用 /provider 指令单独选择会话的 STT 模型。",
                         "_special": "select_provider_stt",
                         "condition": {
                             "provider_stt_settings.enable": True,
                         },
                     },
                     "provider_tts_settings.enable": {
-                        "description": "默认启用文本转语音",
+                        "description": "启用文本转语音",
                         "type": "bool",
+                        "hint": "TTS 总开关。当关闭时，会话启用 TTS 也不会生效。",
                     },
                     "provider_tts_settings.provider_id": {
-                        "description": "文本转语音模型",
+                        "description": "默认文本转语音模型",
                         "type": "string",
-                        "hint": "留空代表不使用。",
+                        "hint": "用户也可使用 /provider 单独选择会话的 TTS 模型。",
                         "_special": "select_provider_tts",
                         "condition": {
                             "provider_tts_settings.enable": True,
@@ -2110,7 +2144,7 @@ CONFIG_METADATA_3 = {
                         "description": "额外前缀提示词",
                         "type": "string",
                     },
-                    "provider_settings.dual_output": {
+                    "provider_tts_settings.dual_output": {
                         "description": "开启 TTS 时同时输出语音和文字内容",
                         "type": "bool",
                     },
