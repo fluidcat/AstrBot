@@ -43,4 +43,5 @@ pydub
 sqlmodel
 deprecated
 sqlalchemy[asyncio]
+pymediainfo~=7.0.1
 audioop-lts; python_version>='3.13'
