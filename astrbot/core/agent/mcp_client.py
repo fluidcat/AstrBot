@@ -1,10 +1,15 @@
 import asyncio
 import logging
-from datetime import timedelta
-from typing import Optional
 from contextlib import AsyncExitStack
+from datetime import timedelta
+from typing import Generic
+
 from astrbot import logger
+from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.utils.log_pipe import LogPipe
+
+from .run_context import TContext
+from .tool import FunctionTool
 
 try:
     import mcp
@@ -16,13 +21,13 @@ try:
     from mcp.client.streamable_http import streamablehttp_client
 except (ModuleNotFoundError, ImportError):
     logger.warning(
-        "警告: 缺少依赖库 'mcp' 或者 mcp 库版本过低，无法使用 Streamable HTTP 连接方式。"
+        "警告: 缺少依赖库 'mcp' 或者 mcp 库版本过低，无法使用 Streamable HTTP 连接方式。",
     )
 
 
 def _prepare_config(config: dict) -> dict:
     """准备配置，处理嵌套格式"""
-    if "mcpServers" in config and config["mcpServers"]:
+    if config.get("mcpServers"):
         first_key = next(iter(config["mcpServers"]))
         config = config["mcpServers"][first_key]
     config.pop("active", None)
@@ -40,8 +45,15 @@ async def _quick_test_mcp_connection(config: dict) -> tuple[bool, str]:
     timeout = cfg.get("timeout", 10)
 
     try:
+        if "transport" in cfg:
+            transport_type = cfg["transport"]
+        elif "type" in cfg:
+            transport_type = cfg["type"]
+        else:
+            raise Exception("MCP 连接配置缺少 transport 或 type 字段")
+
         async with aiohttp.ClientSession() as session:
-            if cfg.get("transport") == "streamable_http":
+            if transport_type == "streamable_http":
                 test_payload = {
                     "jsonrpc": "2.0",
                     "method": "initialize",
@@ -64,8 +76,7 @@ async def _quick_test_mcp_connection(config: dict) -> tuple[bool, str]:
                 ) as response:
                     if response.status == 200:
                         return True, ""
-                    else:
-                        return False, f"HTTP {response.status}: {response.reason}"
+                    return False, f"HTTP {response.status}: {response.reason}"
             else:
                 async with session.get(
                     url,
@@ -77,8 +88,7 @@ async def _quick_test_mcp_connection(config: dict) -> tuple[bool, str]:
                 ) as response:
                     if response.status == 200:
                         return True, ""
-                    else:
-                        return False, f"HTTP {response.status}: {response.reason}"
+                    return False, f"HTTP {response.status}: {response.reason}"
 
     except asyncio.TimeoutError:
         return False, f"连接超时: {timeout}秒"
@@ -89,7 +99,7 @@ async def _quick_test_mcp_connection(config: dict) -> tuple[bool, str]:
 class MCPClient:
     def __init__(self):
         # Initialize session and client objects
-        self.session: Optional[mcp.ClientSession] = None
+        self.session: mcp.ClientSession | None = None
         self.exit_stack = AsyncExitStack()
 
         self.name: str | None = None
@@ -108,6 +118,7 @@ class MCPClient:
 
         Args:
             mcp_server_config (dict): Configuration for the MCP server. See https://modelcontextprotocol.io/quickstart/server
+
         """
         cfg = _prepare_config(mcp_server_config.copy())
 
@@ -121,7 +132,14 @@ class MCPClient:
             if not success:
                 raise Exception(error_msg)
 
-            if cfg.get("transport") != "streamable_http":
+            if "transport" in cfg:
+                transport_type = cfg["transport"]
+            elif "type" in cfg:
+                transport_type = cfg["type"]
+            else:
+                raise Exception("MCP 连接配置缺少 transport 或 type 字段")
+
+            if transport_type != "streamable_http":
                 # SSE transport method
                 self._streams_context = sse_client(
                     url=cfg["url"],
@@ -130,22 +148,22 @@ class MCPClient:
                     sse_read_timeout=cfg.get("sse_read_timeout", 60 * 5),
                 )
                 streams = await self.exit_stack.enter_async_context(
-                    self._streams_context
+                    self._streams_context,
                 )
 
                 # Create a new client session
-                read_timeout = timedelta(seconds=cfg.get("session_read_timeout", 20))
+                read_timeout = timedelta(seconds=cfg.get("session_read_timeout", 60))
                 self.session = await self.exit_stack.enter_async_context(
                     mcp.ClientSession(
                         *streams,
                         read_timeout_seconds=read_timeout,
                         logging_callback=logging_callback,  # type: ignore
-                    )
+                    ),
                 )
             else:
                 timeout = timedelta(seconds=cfg.get("timeout", 30))
                 sse_read_timeout = timedelta(
-                    seconds=cfg.get("sse_read_timeout", 60 * 5)
+                    seconds=cfg.get("sse_read_timeout", 60 * 5),
                 )
                 self._streams_context = streamablehttp_client(
                     url=cfg["url"],
@@ -155,18 +173,18 @@ class MCPClient:
                     terminate_on_close=cfg.get("terminate_on_close", True),
                 )
                 read_s, write_s, _ = await self.exit_stack.enter_async_context(
-                    self._streams_context
+                    self._streams_context,
                 )
 
                 # Create a new client session
-                read_timeout = timedelta(seconds=cfg.get("session_read_timeout", 20))
+                read_timeout = timedelta(seconds=cfg.get("session_read_timeout", 60))
                 self.session = await self.exit_stack.enter_async_context(
                     mcp.ClientSession(
                         read_stream=read_s,
                         write_stream=write_s,
                         read_timeout_seconds=read_timeout,
                         logging_callback=logging_callback,  # type: ignore
-                    )
+                    ),
                 )
 
         else:
@@ -192,7 +210,7 @@ class MCPClient:
 
             # Create a new client session
             self.session = await self.exit_stack.enter_async_context(
-                mcp.ClientSession(*stdio_transport)
+                mcp.ClientSession(*stdio_transport),
             )
         await self.session.initialize()
 
@@ -208,3 +226,34 @@ class MCPClient:
         """Clean up resources"""
         await self.exit_stack.aclose()
         self.running_event.set()  # Set the running event to indicate cleanup is done
+
+
+class MCPTool(FunctionTool, Generic[TContext]):
+    """A function tool that calls an MCP service."""
+
+    def __init__(
+        self, mcp_tool: mcp.Tool, mcp_client: MCPClient, mcp_server_name: str, **kwargs
+    ):
+        super().__init__(
+            name=mcp_tool.name,
+            description=mcp_tool.description or "",
+            parameters=mcp_tool.inputSchema,
+        )
+        self.mcp_tool = mcp_tool
+        self.mcp_client = mcp_client
+        self.mcp_server_name = mcp_server_name
+
+    async def call(
+        self, context: ContextWrapper[TContext], **kwargs
+    ) -> mcp.types.CallToolResult:
+        session = self.mcp_client.session
+        if not session:
+            raise ValueError("MCP session is not available for MCP function tools.")
+        res = await session.call_tool(
+            name=self.mcp_tool.name,
+            arguments=kwargs,
+            read_timeout_seconds=timedelta(
+                seconds=context.tool_call_timeout,
+            ),
+        )
+        return res
