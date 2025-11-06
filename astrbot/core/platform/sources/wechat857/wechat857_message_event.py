@@ -16,7 +16,6 @@ from astrbot.core.message.components import (
     Video,
     WechatEmoji,
     Record,
-    Xml,
 )  # Import Image
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
@@ -64,8 +63,6 @@ class WeChat857MessageEvent(AstrMessageEvent):
                     await self._send_video(comp)
                 elif isinstance(comp, File):
                     await self._send_file(comp)
-                elif isinstance(comp, Xml):
-                    await self._send_xml(comp)
                 elif isinstance(comp, Music):
                     await self._send_music(comp)
         await super().send(message)
@@ -166,12 +163,12 @@ class WeChat857MessageEvent(AstrMessageEvent):
         else:
             raise NotImplementedError("暂不支持发送本地文件")
 
-    async def _send_xml(self, comp: Xml):
-        if self.get_group_id() and "#" in self.session_id:
-            session_id = self.session_id.split("#")[0]
-        else:
-            session_id = self.session_id
-        await self.adapter.client.send_app_message(session_id, comp.data, comp.resid)
+    # async def _send_xml(self, comp: Xml):
+    #     if self.get_group_id() and "#" in self.session_id:
+    #         session_id = self.session_id.split("#")[0]
+    #     else:
+    #         session_id = self.session_id
+    #     await self.adapter.client.send_app_message(session_id, comp.data, comp.resid)
 
     async def _send_music(self, comp: Music):
         if self.get_group_id() and "#" in self.session_id:
