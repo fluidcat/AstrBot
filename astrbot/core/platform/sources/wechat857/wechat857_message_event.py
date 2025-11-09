@@ -74,7 +74,7 @@ class WeChat857MessageEvent(AstrMessageEvent):
         else:
             session_id = self.session_id
 
-        if comp.cdn_xml:
+        if hasattr(comp, "cdn_xml"):
             await self.adapter.client.send_cdn_img_msg(session_id, comp.cdn_xml)
         else:
             await self.adapter.client.send_image_message(session_id, Path(file_path))
@@ -132,7 +132,7 @@ class WeChat857MessageEvent(AstrMessageEvent):
         else:
             session_id = self.session_id
 
-        if comp.cdn_xml:
+        if hasattr(comp, "cdn_xml"):
             await self.adapter.client.send_cdn_file_msg(session_id, comp.cdn_xml)
         else:
             record_path = await comp.convert_to_file_path()
@@ -145,7 +145,7 @@ class WeChat857MessageEvent(AstrMessageEvent):
         else:
             session_id = self.session_id
 
-        if comp.cdn_xml:
+        if hasattr(comp, "cdn_xml"):
             await self.adapter.client.send_cdn_video_msg(session_id, comp.cdn_xml)
         else:
             record_path = await comp.convert_to_file_path()
@@ -158,7 +158,7 @@ class WeChat857MessageEvent(AstrMessageEvent):
         else:
             session_id = self.session_id
 
-        if comp.cdn_xml:
+        if hasattr(comp, "cdn_xml"):
             await self.adapter.client.send_cdn_file_msg(session_id, comp.cdn_xml)
         else:
             raise NotImplementedError("暂不支持发送本地文件")
