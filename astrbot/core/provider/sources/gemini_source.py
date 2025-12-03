@@ -53,12 +53,10 @@ class ProviderGoogleGenAI(Provider):
         self,
         provider_config,
         provider_settings,
-        default_persona=None,
     ) -> None:
         super().__init__(
             provider_config,
             provider_settings,
-            default_persona,
         )
         self.api_keys: list = super().get_keys()
         self.chosen_api_key: str = self.api_keys[0] if len(self.api_keys) > 0 else ""
@@ -113,9 +111,9 @@ class ProviderGoogleGenAI(Provider):
                 f"检测到 Key 异常({e.message})，且已没有可用的 Key。 当前 Key: {self.chosen_api_key[:12]}...",
             )
             raise Exception("达到了 Gemini 速率限制, 请稍后再试...")
-        logger.error(
-            f"发生了错误(gemini_source)。Provider 配置如下: {self.provider_config}",
-        )
+        # logger.error(
+        #     f"发生了错误(gemini_source)。Provider 配置如下: {self.provider_config}",
+        # )
         raise e
 
     async def _prepare_query_config(
@@ -292,13 +290,24 @@ class ProviderGoogleGenAI(Provider):
                     parts = [types.Part.from_text(text=content)]
                     append_or_extend(gemini_contents, parts, types.ModelContent)
                 elif not native_tool_enabled and "tool_calls" in message:
-                    parts = [
-                        types.Part.from_function_call(
+                    parts = []
+                    for tool in message["tool_calls"]:
+                        part = types.Part.from_function_call(
                             name=tool["function"]["name"],
                             args=json.loads(tool["function"]["arguments"]),
                         )
-                        for tool in message["tool_calls"]
-                    ]
+                        # we should set thought_signature back to part if exists
+                        # for more info about thought_signature, see:
+                        # https://ai.google.dev/gemini-api/docs/thought-signatures
+                        if "extra_content" in tool and tool["extra_content"]:
+                            ts_bs64 = (
+                                tool["extra_content"]
+                                .get("google", {})
+                                .get("thought_signature")
+                            )
+                            if ts_bs64:
+                                part.thought_signature = base64.b64decode(ts_bs64)
+                        parts.append(part)
                     append_or_extend(gemini_contents, parts, types.ModelContent)
                 else:
                     logger.warning("assistant 角色的消息内容为空，已添加空格占位")
@@ -326,8 +335,18 @@ class ProviderGoogleGenAI(Provider):
 
         return gemini_contents
 
-    @staticmethod
+    def _extract_reasoning_content(self, candidate: types.Candidate) -> str:
+        """Extract reasoning content from candidate parts"""
+        if not candidate.content or not candidate.content.parts:
+            return ""
+
+        thought_buf: list[str] = [
+            (p.text or "") for p in candidate.content.parts if p.thought
+        ]
+        return "".join(thought_buf).strip()
+
     def _process_content_parts(
+        self,
         candidate: types.Candidate,
         llm_response: LLMResponse,
     ) -> MessageChain:
@@ -358,6 +377,11 @@ class ProviderGoogleGenAI(Provider):
             logger.warning(f"收到的 candidate.content.parts 为空: {candidate}")
             raise Exception("API 返回的 candidate.content.parts 为空。")
 
+        # 提取 reasoning content
+        reasoning = self._extract_reasoning_content(candidate)
+        if reasoning:
+            llm_response.reasoning_content = reasoning
+
         chain = []
         part: types.Part
 
@@ -380,10 +404,15 @@ class ProviderGoogleGenAI(Provider):
                 llm_response.role = "tool"
                 llm_response.tools_call_name.append(part.function_call.name)
                 llm_response.tools_call_args.append(part.function_call.args)
-                # gemini 返回的 function_call.id 可能为 None
-                llm_response.tools_call_ids.append(
-                    part.function_call.id or part.function_call.name,
-                )
+                # function_call.id might be None, use name as fallback
+                tool_call_id = part.function_call.id or part.function_call.name
+                llm_response.tools_call_ids.append(tool_call_id)
+                # extra_content
+                if part.thought_signature:
+                    ts_bs64 = base64.b64encode(part.thought_signature).decode("utf-8")
+                    llm_response.tools_call_extra_content[tool_call_id] = {
+                        "google": {"thought_signature": ts_bs64}
+                    }
             elif (
                 part.inline_data
                 and part.inline_data.mime_type
@@ -422,6 +451,7 @@ class ProviderGoogleGenAI(Provider):
                     contents=conversation,
                     config=config,
                 )
+                logger.debug(f"genai result: {result}")
 
                 if not result.candidates:
                     logger.error(f"请求失败, 返回的 candidates 为空: {result}")
@@ -515,6 +545,7 @@ class ProviderGoogleGenAI(Provider):
 
         # Accumulate the complete response text for the final response
         accumulated_text = ""
+        accumulated_reasoning = ""
         final_response = None
 
         async for chunk in result:
@@ -539,9 +570,19 @@ class ProviderGoogleGenAI(Provider):
                 yield llm_response
                 return
 
+            _f = False
+
+            # 提取 reasoning content
+            reasoning = self._extract_reasoning_content(chunk.candidates[0])
+            if reasoning:
+                _f = True
+                accumulated_reasoning += reasoning
+                llm_response.reasoning_content = reasoning
             if chunk.text:
+                _f = True
                 accumulated_text += chunk.text
                 llm_response.result_chain = MessageChain(chain=[Comp.Plain(chunk.text)])
+            if _f:
                 yield llm_response
 
             if chunk.candidates[0].finish_reason:
@@ -558,6 +599,10 @@ class ProviderGoogleGenAI(Provider):
         # Yield final complete response with accumulated text
         if not final_response:
             final_response = LLMResponse("assistant", is_chunk=False)
+
+        # Set the complete accumulated reasoning in the final response
+        if accumulated_reasoning:
+            final_response.reasoning_content = accumulated_reasoning
 
         # Set the complete accumulated text in the final response
         if accumulated_text:

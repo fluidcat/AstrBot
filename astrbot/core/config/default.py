@@ -4,7 +4,7 @@ import os
 
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-VERSION = "4.5.6"
+VERSION = "4.7.4"
 DB_PATH = os.path.join(get_astrbot_data_path(), "data_v4.db")
 
 # 默认配置
@@ -68,9 +68,19 @@ DEFAULT_CONFIG = {
         "dequeue_context_length": 1,
         "streaming_response": False,
         "show_tool_use_status": False,
-        "streaming_segmented": False,
+        "agent_runner_type": "local",
+        "dify_agent_runner_provider_id": "",
+        "coze_agent_runner_provider_id": "",
+        "dashscope_agent_runner_provider_id": "",
+        "unsupported_streaming_strategy": "realtime_segmenting",
+        "reachability_check": False,
         "max_agent_step": 30,
         "tool_call_timeout": 60,
+        "file_extract": {
+            "enable": False,
+            "provider": "moonshotai",
+            "moonshotai_api_key": "",
+        },
     },
     "provider_stt_settings": {
         "enable": False,
@@ -86,6 +96,7 @@ DEFAULT_CONFIG = {
         "group_icl_enable": False,
         "group_message_max_cnt": 300,
         "image_caption": False,
+        "image_caption_provider_id": "",
         "active_reply": {
             "enable": False,
             "method": "possibility_reply",
@@ -137,10 +148,20 @@ DEFAULT_CONFIG = {
     "kb_names": [],  # 默认知识库名称列表
     "kb_fusion_top_k": 20,  # 知识库检索融合阶段返回结果数量
     "kb_final_top_k": 5,  # 知识库检索最终返回结果数量
+    "kb_agentic_mode": False,
 }
 
 
-# 配置项的中文描述、值类型
+"""
+AstrBot v3 时代的配置元数据，目前仅承担以下功能：
+
+1. 保存配置时，配置项的类型验证
+2. WebUI 展示提供商和平台适配器模版
+
+WebUI 的配置文件在 `CONFIG_METADATA_3` 中。
+
+未来将会逐步淘汰此配置元数据。
+"""
 CONFIG_METADATA_2 = {
     "platform_group": {
         "metadata": {
@@ -641,7 +662,7 @@ CONFIG_METADATA_2 = {
                             },
                             "words_count_threshold": {
                                 "type": "int",
-                                "hint": "超过这个字数的消息不会被分段回复。默认为 150",
+                                "hint": "分段回复的字数上限。只有字数小于此值的消息才会被分段，超过此值的长消息将直接发送（不分段）。默认为 150",
                             },
                             "regex": {
                                 "type": "string",
@@ -748,6 +769,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.openai.com/v1",
                         "timeout": 120,
                         "model_config": {"model": "gpt-4o-mini", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                         "hint": "也兼容所有与 OpenAI API 兼容的服务。",
@@ -763,6 +785,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "",
                         "timeout": 120,
                         "model_config": {"model": "gpt-4o-mini", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -776,6 +799,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.x.ai/v1",
                         "timeout": 120,
                         "model_config": {"model": "grok-2-latest", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "xai_native_search": False,
                         "modalities": ["text", "image", "tool_use"],
@@ -807,6 +831,7 @@ CONFIG_METADATA_2 = {
                         "key": ["ollama"],  # ollama 的 key 默认是 ollama
                         "api_base": "http://localhost:11434/v1",
                         "model_config": {"model": "llama3.1-8b", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -821,6 +846,7 @@ CONFIG_METADATA_2 = {
                         "model_config": {
                             "model": "llama-3.1-8b",
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -837,6 +863,7 @@ CONFIG_METADATA_2 = {
                             "model": "gemini-1.5-flash",
                             "temperature": 0.4,
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -878,6 +905,24 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.deepseek.com/v1",
                         "timeout": 120,
                         "model_config": {"model": "deepseek-chat", "temperature": 0.4},
+                        "custom_headers": {},
+                        "custom_extra_body": {},
+                        "modalities": ["text", "tool_use"],
+                    },
+                    "Groq": {
+                        "id": "groq_default",
+                        "provider": "groq",
+                        "type": "groq_chat_completion",
+                        "provider_type": "chat_completion",
+                        "enable": True,
+                        "key": [],
+                        "api_base": "https://api.groq.com/openai/v1",
+                        "timeout": 120,
+                        "model_config": {
+                            "model": "openai/gpt-oss-20b",
+                            "temperature": 0.4,
+                        },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "tool_use"],
                     },
@@ -891,6 +936,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.302.ai/v1",
                         "timeout": 120,
                         "model_config": {"model": "gpt-4.1-mini", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -907,6 +953,7 @@ CONFIG_METADATA_2 = {
                             "model": "deepseek-ai/DeepSeek-V3",
                             "temperature": 0.4,
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -923,6 +970,7 @@ CONFIG_METADATA_2 = {
                             "model": "deepseek/deepseek-r1",
                             "temperature": 0.4,
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                     },
                     "小马算力": {
@@ -938,6 +986,7 @@ CONFIG_METADATA_2 = {
                             "model": "kimi-k2-instruct-0905",
                             "temperature": 0.7,
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                     },
                     "优云智算": {
@@ -952,6 +1001,7 @@ CONFIG_METADATA_2 = {
                         "model_config": {
                             "model": "moonshotai/Kimi-K2-Instruct",
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -965,6 +1015,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "api_base": "https://api.moonshot.cn/v1",
                         "model_config": {"model": "moonshot-v1-8k", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -980,13 +1031,15 @@ CONFIG_METADATA_2 = {
                         "model_config": {
                             "model": "glm-4-flash",
                         },
+                        "custom_headers": {},
+                        "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
                     "Dify": {
                         "id": "dify_app_default",
                         "provider": "dify",
                         "type": "dify",
-                        "provider_type": "chat_completion",
+                        "provider_type": "agent_runner",
                         "enable": True,
                         "dify_api_type": "chat",
                         "dify_api_key": "",
@@ -1000,20 +1053,20 @@ CONFIG_METADATA_2 = {
                     "Coze": {
                         "id": "coze",
                         "provider": "coze",
-                        "provider_type": "chat_completion",
+                        "provider_type": "agent_runner",
                         "type": "coze",
                         "enable": True,
                         "coze_api_key": "",
                         "bot_id": "",
                         "coze_api_base": "https://api.coze.cn",
                         "timeout": 60,
-                        "auto_save_history": True,
+                        # "auto_save_history": True,
                     },
                     "阿里云百炼应用": {
                         "id": "dashscope",
                         "provider": "dashscope",
                         "type": "dashscope",
-                        "provider_type": "chat_completion",
+                        "provider_type": "agent_runner",
                         "enable": True,
                         "dashscope_app_type": "agent",
                         "dashscope_api_key": "",
@@ -1036,6 +1089,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "api_base": "https://api-inference.modelscope.cn/v1",
                         "model_config": {"model": "Qwen/Qwen3-32B", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -1048,6 +1102,7 @@ CONFIG_METADATA_2 = {
                         "key": [],
                         "api_base": "https://api.fastgpt.in/api/v1",
                         "timeout": 60,
+                        "custom_headers": {},
                         "custom_extra_body": {},
                     },
                     "Whisper(API)": {
@@ -1060,7 +1115,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "",
                         "model": "whisper-1",
                     },
-                    "Whisper(本地加载)": {
+                    "Whisper(Local)": {
                         "hint": "启用前请 pip 安装 openai-whisper 库（N卡用户大约下载 2GB，主要是 torch 和 cuda，CPU 用户大约下载 1 GB），并且安装 ffmpeg。否则将无法正常转文字。",
                         "provider": "openai",
                         "type": "openai_whisper_selfhost",
@@ -1069,7 +1124,7 @@ CONFIG_METADATA_2 = {
                         "id": "whisper_selfhost",
                         "model": "tiny",
                     },
-                    "SenseVoice(本地加载)": {
+                    "SenseVoice(Local)": {
                         "hint": "启用前请 pip 安装 funasr、funasr_onnx、torchaudio、torch、modelscope、jieba 库（默认使用CPU，大约下载 1 GB），并且安装 ffmpeg。否则将无法正常转文字。",
                         "type": "sensevoice_stt_selfhost",
                         "provider": "sensevoice",
@@ -1126,7 +1181,7 @@ CONFIG_METADATA_2 = {
                         "pitch": "+0Hz",
                         "timeout": 20,
                     },
-                    "GSV TTS(本地加载)": {
+                    "GSV TTS(Local)": {
                         "id": "gsv_tts",
                         "enable": False,
                         "provider": "gpt_sovits",
@@ -1303,6 +1358,19 @@ CONFIG_METADATA_2 = {
                         "timeout": 20,
                         "launch_model_if_not_running": False,
                     },
+                    "阿里云百炼重排序": {
+                        "id": "bailian_rerank",
+                        "type": "bailian_rerank",
+                        "provider": "bailian",
+                        "provider_type": "rerank",
+                        "enable": True,
+                        "rerank_api_key": "",
+                        "rerank_api_base": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+                        "rerank_model": "qwen3-rerank",
+                        "timeout": 30,
+                        "return_documents": False,
+                        "instruct": "",
+                    },
                     "Xinference STT": {
                         "id": "xinference_stt",
                         "type": "xinference_stt",
@@ -1337,6 +1405,16 @@ CONFIG_METADATA_2 = {
                         "description": "重排序模型名称",
                         "type": "string",
                     },
+                    "return_documents": {
+                        "description": "是否在排序结果中返回文档原文",
+                        "type": "bool",
+                        "hint": "默认值false，以减少网络传输开销。",
+                    },
+                    "instruct": {
+                        "description": "自定义排序任务类型说明",
+                        "type": "string",
+                        "hint": "仅在使用 qwen3-rerank 模型时生效。建议使用英文撰写。",
+                    },
                     "launch_model_if_not_running": {
                         "description": "模型未运行时自动启动",
                         "type": "bool",
@@ -1350,6 +1428,12 @@ CONFIG_METADATA_2 = {
                         "labels": ["文本", "图像", "工具使用"],
                         "render_type": "checkbox",
                         "hint": "模型支持的模态。如所填写的模型不支持图像，请取消勾选图像。",
+                    },
+                    "custom_headers": {
+                        "description": "自定义添加请求头",
+                        "type": "dict",
+                        "items": {},
+                        "hint": "此处添加的键值对将被合并到 OpenAI SDK 的 default_headers 中，用于自定义 HTTP 请求头。值必须为字符串。",
                     },
                     "custom_extra_body": {
                         "description": "自定义请求体参数",
@@ -1873,7 +1957,6 @@ CONFIG_METADATA_2 = {
                     "enable": {
                         "description": "启用",
                         "type": "bool",
-                        "hint": "是否启用。",
                     },
                     "key": {
                         "description": "API Key",
@@ -2000,16 +2083,40 @@ CONFIG_METADATA_2 = {
                     "show_tool_use_status": {
                         "type": "bool",
                     },
-                    "streaming_segmented": {
-                        "type": "bool",
+                    "unsupported_streaming_strategy": {
+                        "type": "string",
+                    },
+                    "agent_runner_type": {
+                        "type": "string",
+                    },
+                    "dify_agent_runner_provider_id": {
+                        "type": "string",
+                    },
+                    "coze_agent_runner_provider_id": {
+                        "type": "string",
+                    },
+                    "dashscope_agent_runner_provider_id": {
+                        "type": "string",
                     },
                     "max_agent_step": {
-                        "description": "工具调用轮数上限",
                         "type": "int",
                     },
                     "tool_call_timeout": {
-                        "description": "工具调用超时时间（秒）",
                         "type": "int",
+                    },
+                    "file_extract": {
+                        "type": "object",
+                        "items": {
+                            "enable": {
+                                "type": "bool",
+                            },
+                            "provider": {
+                                "type": "string",
+                            },
+                            "moonshotai_api_key": {
+                                "type": "string",
+                            },
+                        },
                     },
                 },
             },
@@ -2052,6 +2159,9 @@ CONFIG_METADATA_2 = {
                     },
                     "image_caption": {
                         "type": "bool",
+                    },
+                    "image_caption_provider_id": {
+                        "type": "string",
                     },
                     "image_caption_prompt": {
                         "type": "string",
@@ -2136,39 +2246,93 @@ CONFIG_METADATA_2 = {
             "kb_names": {"type": "list", "items": {"type": "string"}},
             "kb_fusion_top_k": {"type": "int", "default": 20},
             "kb_final_top_k": {"type": "int", "default": 5},
+            "kb_agentic_mode": {"type": "bool"},
         },
     },
 }
 
 
+"""
+v4.7.0 之后，name, description, hint 等字段已经实现 i18n 国际化。国际化资源文件位于：
+
+- dashboard/src/i18n/locales/en-US/features/config-metadata.json
+- dashboard/src/i18n/locales/zh-CN/features/config-metadata.json
+
+如果在此文件中添加了新的配置字段，请务必同步更新上述两个国际化资源文件。
+"""
 CONFIG_METADATA_3 = {
     "ai_group": {
         "name": "AI 配置",
         "metadata": {
-            "ai": {
-                "description": "模型",
+            "agent_runner": {
+                "description": "Agent 执行方式",
+                "hint": "选择 AI 对话的执行器，默认为 AstrBot 内置 Agent 执行器，可使用 AstrBot 内的知识库、人格、工具调用功能。如果不打算接入 Dify 或 Coze 等第三方 Agent 执行器，不需要修改此节。",
                 "type": "object",
                 "items": {
                     "provider_settings.enable": {
-                        "description": "启用大语言模型聊天",
+                        "description": "启用",
                         "type": "bool",
+                        "hint": "AI 对话总开关",
                     },
+                    "provider_settings.agent_runner_type": {
+                        "description": "执行器",
+                        "type": "string",
+                        "options": ["local", "dify", "coze", "dashscope"],
+                        "labels": ["内置 Agent", "Dify", "Coze", "阿里云百炼应用"],
+                        "condition": {
+                            "provider_settings.enable": True,
+                        },
+                    },
+                    "provider_settings.coze_agent_runner_provider_id": {
+                        "description": "Coze Agent 执行器提供商 ID",
+                        "type": "string",
+                        "_special": "select_agent_runner_provider:coze",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "coze",
+                            "provider_settings.enable": True,
+                        },
+                    },
+                    "provider_settings.dify_agent_runner_provider_id": {
+                        "description": "Dify Agent 执行器提供商 ID",
+                        "type": "string",
+                        "_special": "select_agent_runner_provider:dify",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "dify",
+                            "provider_settings.enable": True,
+                        },
+                    },
+                    "provider_settings.dashscope_agent_runner_provider_id": {
+                        "description": "阿里云百炼应用 Agent 执行器提供商 ID",
+                        "type": "string",
+                        "_special": "select_agent_runner_provider:dashscope",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "dashscope",
+                            "provider_settings.enable": True,
+                        },
+                    },
+                },
+            },
+            "ai": {
+                "description": "模型",
+                "hint": "当使用非内置 Agent 执行器时，默认聊天模型和默认图片转述模型可能会无效，但某些插件会依赖此配置项来调用 AI 能力。",
+                "type": "object",
+                "items": {
                     "provider_settings.default_provider_id": {
                         "description": "默认聊天模型",
                         "type": "string",
                         "_special": "select_provider",
-                        "hint": "留空时使用第一个模型。",
+                        "hint": "留空时使用第一个模型",
                     },
                     "provider_settings.default_image_caption_provider_id": {
                         "description": "默认图片转述模型",
                         "type": "string",
                         "_special": "select_provider",
-                        "hint": "留空代表不使用。可用于不支持视觉模态的聊天模型。",
+                        "hint": "留空代表不使用，可用于非多模态模型",
                     },
                     "provider_stt_settings.enable": {
                         "description": "启用语音转文本",
                         "type": "bool",
-                        "hint": "STT 总开关。",
+                        "hint": "STT 总开关",
                     },
                     "provider_stt_settings.provider_id": {
                         "description": "默认语音转文本模型",
@@ -2182,12 +2346,11 @@ CONFIG_METADATA_3 = {
                     "provider_tts_settings.enable": {
                         "description": "启用文本转语音",
                         "type": "bool",
-                        "hint": "TTS 总开关。当关闭时，会话启用 TTS 也不会生效。",
+                        "hint": "TTS 总开关",
                     },
                     "provider_tts_settings.provider_id": {
                         "description": "默认文本转语音模型",
                         "type": "string",
-                        "hint": "用户也可使用 /provider 单独选择会话的 TTS 模型。",
                         "_special": "select_provider_tts",
                         "condition": {
                             "provider_tts_settings.enable": True,
@@ -2197,6 +2360,9 @@ CONFIG_METADATA_3 = {
                         "description": "图片转述提示词",
                         "type": "text",
                     },
+                },
+                "condition": {
+                    "provider_settings.enable": True,
                 },
             },
             "persona": {
@@ -2208,6 +2374,10 @@ CONFIG_METADATA_3 = {
                         "type": "string",
                         "_special": "select_persona",
                     },
+                },
+                "condition": {
+                    "provider_settings.agent_runner_type": "local",
+                    "provider_settings.enable": True,
                 },
             },
             "knowledgebase": {
@@ -2231,6 +2401,15 @@ CONFIG_METADATA_3 = {
                         "type": "int",
                         "hint": "从知识库中检索到的结果数量，越大可能获得越多相关信息，但也可能引入噪音。建议根据实际需求调整",
                     },
+                    "kb_agentic_mode": {
+                        "description": "Agentic 知识库检索",
+                        "type": "bool",
+                        "hint": "启用后，知识库检索将作为 LLM Tool，由模型自主决定何时调用知识库进行查询。需要模型支持函数调用能力。",
+                    },
+                },
+                "condition": {
+                    "provider_settings.agent_runner_type": "local",
+                    "provider_settings.enable": True,
                 },
             },
             "websearch": {
@@ -2268,7 +2447,41 @@ CONFIG_METADATA_3 = {
                         "type": "bool",
                     },
                 },
+                "condition": {
+                    "provider_settings.agent_runner_type": "local",
+                    "provider_settings.enable": True,
+                },
             },
+            # "file_extract": {
+            #     "description": "文档解析能力 [beta]",
+            #     "type": "object",
+            #     "items": {
+            #         "provider_settings.file_extract.enable": {
+            #             "description": "启用文档解析能力",
+            #             "type": "bool",
+            #         },
+            #         "provider_settings.file_extract.provider": {
+            #             "description": "文档解析提供商",
+            #             "type": "string",
+            #             "options": ["moonshotai"],
+            #             "condition": {
+            #                 "provider_settings.file_extract.enable": True,
+            #             },
+            #         },
+            #         "provider_settings.file_extract.moonshotai_api_key": {
+            #             "description": "Moonshot AI API Key",
+            #             "type": "string",
+            #             "condition": {
+            #                 "provider_settings.file_extract.provider": "moonshotai",
+            #                 "provider_settings.file_extract.enable": True,
+            #             },
+            #         },
+            #     },
+            #     "condition": {
+            #         "provider_settings.agent_runner_type": "local",
+            #         "provider_settings.enable": True,
+            #     },
+            # },
             "others": {
                 "description": "其他配置",
                 "type": "object",
@@ -2276,54 +2489,83 @@ CONFIG_METADATA_3 = {
                     "provider_settings.display_reasoning_text": {
                         "description": "显示思考内容",
                         "type": "bool",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                        },
                     },
                     "provider_settings.identifier": {
                         "description": "用户识别",
                         "type": "bool",
+                        "hint": "启用后，会在提示词前包含用户 ID 信息。",
                     },
                     "provider_settings.group_name_display": {
                         "description": "显示群名称",
                         "type": "bool",
-                        "hint": "启用后，在支持的平台(aiocqhttp)上会在 prompt 中包含群名称信息。",
+                        "hint": "启用后，在支持的平台(OneBot v11)上会在提示词前包含群名称信息。",
                     },
                     "provider_settings.datetime_system_prompt": {
                         "description": "现实世界时间感知",
                         "type": "bool",
+                        "hint": "启用后，会在系统提示词中附带当前时间信息。",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                        },
                     },
                     "provider_settings.show_tool_use_status": {
                         "description": "输出函数调用状态",
                         "type": "bool",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                        },
                     },
                     "provider_settings.max_agent_step": {
                         "description": "工具调用轮数上限",
                         "type": "int",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                        },
                     },
                     "provider_settings.tool_call_timeout": {
                         "description": "工具调用超时时间（秒）",
                         "type": "int",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                        },
                     },
                     "provider_settings.streaming_response": {
-                        "description": "流式回复",
+                        "description": "流式输出",
                         "type": "bool",
                     },
-                    "provider_settings.streaming_segmented": {
-                        "description": "不支持流式回复的平台采取分段输出",
-                        "type": "bool",
+                    "provider_settings.unsupported_streaming_strategy": {
+                        "description": "不支持流式回复的平台",
+                        "type": "string",
+                        "options": ["realtime_segmenting", "turn_off"],
+                        "hint": "选择在不支持流式回复的平台上的处理方式。实时分段回复会在系统接收流式响应检测到诸如标点符号等分段点时，立即发送当前已接收的内容",
+                        "labels": ["实时分段回复", "关闭流式回复"],
+                        "condition": {
+                            "provider_settings.streaming_response": True,
+                        },
                     },
                     "provider_settings.max_context_length": {
                         "description": "最多携带对话轮数",
                         "type": "int",
-                        "hint": "超出这个数量时丢弃最旧的部分，一轮聊天记为 1 条。-1 为不限制。",
+                        "hint": "超出这个数量时丢弃最旧的部分，一轮聊天记为 1 条，-1 为不限制",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                        },
                     },
                     "provider_settings.dequeue_context_length": {
                         "description": "丢弃对话轮数",
                         "type": "int",
-                        "hint": "超出最多携带对话轮数时, 一次丢弃的聊天轮数。",
+                        "hint": "超出最多携带对话轮数时, 一次丢弃的聊天轮数",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                        },
                     },
                     "provider_settings.wake_prefix": {
                         "description": "LLM 聊天额外唤醒前缀 ",
                         "type": "string",
-                        "hint": "如果唤醒前缀为 `/`, 额外聊天唤醒前缀为 `chat`，则需要 `/chat` 才会触发 LLM 请求。默认为空。",
+                        "hint": "如果唤醒前缀为 /, 额外聊天唤醒前缀为 chat，则需要 /chat 才会触发 LLM 请求",
                     },
                     "provider_settings.prompt_prefix": {
                         "description": "用户提示词",
@@ -2334,6 +2576,14 @@ CONFIG_METADATA_3 = {
                         "description": "开启 TTS 时同时输出语音和文字内容",
                         "type": "bool",
                     },
+                    "provider_settings.reachability_check": {
+                        "description": "提供商可达性检测",
+                        "type": "bool",
+                        "hint": "/provider 命令列出模型时是否并发检测连通性。开启后会主动调用模型测试连通性，可能产生额外 token 消耗。",
+                    },
+                },
+                "condition": {
+                    "provider_settings.enable": True,
                 },
             },
         },
@@ -2624,7 +2874,16 @@ CONFIG_METADATA_3 = {
                     "provider_ltm_settings.image_caption": {
                         "description": "自动理解图片",
                         "type": "bool",
-                        "hint": "需要设置默认图片转述模型。",
+                        "hint": "需要设置群聊图片转述模型。",
+                    },
+                    "provider_ltm_settings.image_caption_provider_id": {
+                        "description": "群聊图片转述模型",
+                        "type": "string",
+                        "_special": "select_provider",
+                        "hint": "用于群聊上下文感知的图片理解，与默认图片转述模型分开配置。",
+                        "condition": {
+                            "provider_ltm_settings.image_caption": True,
+                        },
                     },
                     "provider_ltm_settings.active_reply.enable": {
                         "description": "主动回复",
