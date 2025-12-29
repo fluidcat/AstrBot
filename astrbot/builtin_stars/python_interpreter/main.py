@@ -484,7 +484,9 @@ class Main(star.Star):
                             ]
                             yield event.set_result(MessageEventResult(chain=chain))
 
-                    elif "Traceback (most recent call last)" in log or "[Error]: " in log:
+                    elif (
+                        "Traceback (most recent call last)" in log or "[Error]: " in log
+                    ):
                         traceback = "\n".join(logs[idx:])
 
                 if not ok:
