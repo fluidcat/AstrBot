@@ -69,8 +69,10 @@
                   v-model="pair.value"
                   density="compact"
                   variant="outlined"
-                  hide-details
+                  hide-details="auto"
                   placeholder="JSON"
+                  @blur="updateJSON(index, pair.value)"
+                  :error-messages="pair.jsonError"
                 ></v-text-field>
               </v-col>
               <v-col cols="1" class="pl-2">
@@ -228,6 +230,15 @@ function addKeyValuePair() {
   }
 }
 
+function updateJSON(index, newValue) {
+  try {
+    JSON.parse(newValue)
+    localKeyValuePairs.value[index].jsonError = ''
+  } catch (e) {
+    localKeyValuePairs.value[index].jsonError = 'JSON 格式错误'
+  }
+}
+
 function removeKeyValuePair(index) {
   localKeyValuePairs.value.splice(index, 1)
 }
@@ -254,6 +265,7 @@ function updateKey(index, newKey) {
 function confirmDialog() {
   const updatedValue = {}
   for (const pair of localKeyValuePairs.value) {
+    if (pair.type === 'json' && pair.jsonError) return
     let convertedValue = pair.value
     // 根据声明的类型进行转换
     switch (pair.type) {
