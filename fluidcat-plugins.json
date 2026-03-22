@@ -71,4 +71,16 @@
     "updated_at": "2025-12-15T07:36:39Z",
     "logo": ""
   }
+  ,"astrbot_plugin_group_daily_analysis": {
+    "display_name": "群分析总结插件",
+    "desc": "[多平台接入开发中] 群日常分析总结插件 - 支持 QQ (aiocqhttp)、Telegram、Discord；生成精美的群聊分析报告，支持话题分析、用户形象、群聊圣经等功能",
+    "author": "SXP-Simon",
+    "repo": "https://github.com/fluidcat/astrbot_plugin_group_daily_analysis",
+    "tags": [],
+    "social_link": "https://github.com/SXP-Simon",
+    "stars": 0,
+    "version": "v100.0.1",
+    "updated_at": "2025-12-15T07:36:39Z",
+    "logo": "https://raw.githubusercontent.com/fluidcat/astrbot_plugin_group_daily_analysis/main/logo.png"
+  }
 }
